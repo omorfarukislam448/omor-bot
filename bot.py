@@ -4839,7 +4839,7 @@ def main():
   application.add_handler(MessageHandler(filters.Document.ALL, handle_document))
 
   print("🤖 Bot is running smoothly...")
-keep_alive()
+    keep_alive()
     application.run_polling()
 
 if __name__ == "__main__":
