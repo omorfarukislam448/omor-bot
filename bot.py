@@ -1,3 +1,4 @@
+from keep_alive import keep_alive
 import datetime
 import json
 import os
@@ -4838,8 +4839,8 @@ def main():
   application.add_handler(MessageHandler(filters.Document.ALL, handle_document))
 
   print("🤖 Bot is running smoothly...")
-  application.run_polling()
-
+keep_alive()
+    application.run_polling()
 
 if __name__ == "__main__":
   main()
