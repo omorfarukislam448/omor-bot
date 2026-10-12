@@ -6,13 +6,16 @@ app = Flask('')
 
 @app.route('/')
 def home():
-    return "Bot is alive and running 24/7!"
+    return "Bot is alive!"
 
 def run():
-    # Render-এর দেওয়া পোর্ট বা ডিফল্ট ৮০৮০ ব্যবহার করবে
-    port = int(os.environ.get('PORT', 8080))
+    # Render-এর দেওয়া PORT ধরবে, না পেলে 10000 বা 8080 ব্যবহার করবে
+    port = int(os.environ.get('PORT', 10000))
     app.run(host='0.0.0.0', port=port)
 
 def keep_alive():
+    """
+    Runs the Flask server in a separate thread so it won't block python-telegram-bot.
+    """
     t = Thread(target=run)
     t.start()
