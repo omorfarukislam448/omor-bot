@@ -1,3 +1,4 @@
+from keep_alive import keep_alive
 import datetime
 import hashlib
 import hmac
@@ -5255,4 +5256,5 @@ def main():
 
 
 if __name__ == "__main__":
+  keep_alive()  # ফ্লাস্ক ব্যাকগ্রাউন্ড সার্ভার চালু করবে
   main()
