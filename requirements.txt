@@ -1,6 +1,7 @@
 python-telegram-bot
+flask
 pandas
 openpyxl
-numpy
 pytz
-flask
+requests
+numpy
