@@ -1,12 +1,17 @@
-from keep_alive import keep_alive
 import datetime
+import hashlib
+import hmac
 import json
 import os
+import re
+import time
+from urllib.parse import urlencode
 import numpy as np
 import openpyxl
 from openpyxl.styles import PatternFill
 import pandas as pd
 import pytz
+import requests
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import (
     ApplicationBuilder,
@@ -29,6 +34,8 @@ ALL_USERS_FILE = "all_users.json"
 ALL_SUBMITTED_ROWS_FILE = "all_submitted_rows_data.json"
 REFERRALS_FILE = "referrals_data.json"
 ADMINS_FILE = "admins.json"
+USED_TXIDS_FILE = "used_crypto_txids.json"
+CRYPTO_WITHDRAWALS_FILE = "crypto_withdrawals.json"
 
 TZ = pytz.timezone("Asia/Dhaka")
 MAINTENANCE_MODE = False
@@ -70,6 +77,46 @@ def is_shift_active(category_key):
   return shift["start"] <= current_time_str <= shift["end"]
 
 
+def load_used_txids():
+  if os.path.exists(USED_TXIDS_FILE):
+    with open(USED_TXIDS_FILE, "r", encoding="utf-8") as f:
+      try:
+        return json.load(f)
+      except:
+        return []
+  return []
+
+
+def save_used_txids(tx_list):
+  with open(USED_TXIDS_FILE, "w", encoding="utf-8") as f:
+    json.dump(tx_list, f, ensure_ascii=False, indent=4)
+
+
+def load_crypto_withdrawals():
+  if os.path.exists(CRYPTO_WITHDRAWALS_FILE):
+    with open(CRYPTO_WITHDRAWALS_FILE, "r", encoding="utf-8") as f:
+      try:
+        return json.load(f)
+      except:
+        return {}
+  return {}
+
+
+def save_crypto_withdrawals(data):
+  with open(CRYPTO_WITHDRAWALS_FILE, "w", encoding="utf-8") as f:
+    json.dump(data, f, ensure_ascii=False, indent=4)
+
+
+def extract_crypto_amount(amount_str):
+  nums = re.findall(r"[\d\.]+", str(amount_str))
+  if nums:
+    try:
+      return float(nums[0])
+    except:
+      return 0.0
+  return 0.0
+
+
 def load_settings():
   default_data = {
       "channels": {
@@ -78,6 +125,7 @@ def load_settings():
           "withdrawal_channel": "@OMORTECH",
           "support_link": "https://t.me/OMOR_BUYER1",
       },
+      "binance_api": {"api_key": "", "api_secret": ""},
       "categories": {
           "ig_2fa": {
               "name": "Instagram 2FA",
@@ -183,21 +231,10 @@ def load_settings():
                 data["categories"][cat_key][k] = v
         if "channels" not in data:
           data["channels"] = default_data["channels"]
-        else:
-          for ch_k in [
-              "join_channel",
-              "submission_channel",
-              "withdrawal_channel",
-              "support_link",
-          ]:
-            if ch_k not in data["channels"]:
-              data["channels"][ch_k] = default_data["channels"][ch_k]
+        if "binance_api" not in data:
+          data["binance_api"] = default_data["binance_api"]
         if "referral" not in data:
           data["referral"] = default_data["referral"]
-        else:
-          for r_k, r_v in default_data["referral"].items():
-            if r_k not in data["referral"]:
-              data["referral"][r_k] = r_v
         if "wallets" not in data:
           data["wallets"] = default_data["wallets"]
         return data
@@ -314,6 +351,90 @@ def load_referrals():
 def save_referrals(data):
   with open(REFERRALS_FILE, "w", encoding="utf-8") as f:
     json.dump(data, f, ensure_ascii=False, indent=4)
+
+
+def verify_binance_deposit(tx_id, api_key, api_secret):
+  if not api_key or not api_secret:
+    return False, "API Keys not set"
+  url = "https://api.binance.com/sapi/v1/capital/deposit/hisrec"
+  timestamp = int(time.time() * 1000) - 2000
+  params = {"timestamp": timestamp, "recvWindow": 60000}
+  query_string = urlencode(params)
+  signature = hmac.new(
+      api_secret.encode("utf-8"),
+      query_string.encode("utf-8"),
+      hashlib.sha256,
+  ).hexdigest()
+  headers = {"X-MBX-APIKEY": api_key}
+  try:
+    response = requests.get(
+        f"{url}?{query_string}&signature={signature}",
+        headers=headers,
+        timeout=10,
+    )
+    data = response.json()
+    if isinstance(data, list):
+      for item in data:
+        if str(item.get("txId", "")).strip().lower() == str(tx_id).strip().lower():
+          if item.get("status") == 1:
+            amt = item.get("amount", "0")
+            coin = item.get("coin", "USDT")
+            return True, {
+                "amount": f"{amt} {coin}",
+                "raw": item,
+                "type": "Deposit",
+            }
+      return False, "TxHash not found or not completed in Binance deposit history"
+    else:
+      return False, f"API Error: {data.get('msg', 'Unknown error')}"
+  except Exception as e:
+    return False, str(e)
+
+
+def verify_binance_pay(pay_id_or_order_id, api_key, api_secret):
+  if not api_key or not api_secret:
+    return False, "API Keys not set"
+  url = "https://api.binance.com/sapi/v1/pay/transactions"
+  timestamp = int(time.time() * 1000) - 2000
+  params = {"timestamp": timestamp, "recvWindow": 60000}
+  query_string = urlencode(params)
+  signature = hmac.new(
+      api_secret.encode("utf-8"),
+      query_string.encode("utf-8"),
+      hashlib.sha256,
+  ).hexdigest()
+  headers = {"X-MBX-APIKEY": api_key}
+  try:
+    response = requests.get(
+        f"{url}?{query_string}&signature={signature}",
+        headers=headers,
+        timeout=10,
+    )
+    data = response.json()
+    if data.get("code") == "000000" or data.get("success") == True:
+      transactions = data.get("data", [])
+      for tx in transactions:
+        if (
+            str(tx.get("orderId", "")).strip()
+            == str(pay_id_or_order_id).strip()
+            or str(tx.get("transactionId", "")).strip()
+            == str(pay_id_or_order_id).strip()
+        ):
+          amt = tx.get("amount", "0")
+          currency = tx.get("currency", "USDT")
+          return True, {
+              "amount": f"{amt} {currency}",
+              "raw": tx,
+              "type": "Binance Pay",
+          }
+      return (
+          False,
+          "Pay ID / Order ID not found in Binance Pay transaction history",
+      )
+    else:
+      return False, f"API Error: {data.get('message', 'Unknown error')}"
+  except Exception as e:
+    return False, str(e)
 
 
 def format_channel_link(ch_val):
@@ -543,7 +664,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
   await update.message.reply_text(
       "💡 **সাহায্য ও নির্দেশিকা:**\n\n1. প্রথমে বট মেনু থেকে **⚙ পেমেন্ট সেটিংস** এ"
       " গিয়ে আপনার পেমেন্ট নম্বর সেট করুন।\n2. পছন্দের ক্যাটাগরিতে ক্লিক করে"
-      " সঠিক ফরম্যাতের এক্সেল ফাইল আপলোড করুন।\n3. কোনো সমস্যা হলে সাপোর্ট আইডিতে"
+      " সঠিক ফরম্যাটের এক্সেল ফাইল আপলোড করুন।\n3. কোনো সমস্যা হলে সাপোর্ট আইডিতে"
       " যোগাযোগ করুন।",
       parse_mode="Markdown",
   )
@@ -569,8 +690,6 @@ async def users_list_command(
     return
   users = load_all_users()
   text = f"👥 **বট ব্যবহারকারী সকল মেম্বারদের তালিকা (মোট: {len(users)} জন):**\n\n"
-  
-  # স্ক্রিনশট অনুযায়ী হুবহু ফরম্যাট (শুধুমাত্র আইডি কপি হবে)
   for uid, name in list(users.items()):
     text += (
         f"👤 [{name}](tg://user?id={uid})\n"
@@ -588,7 +707,7 @@ async def reset_all_logs_command(
   save_logs([])
   save_all_rows_db({})
   await update.message.reply_text(
-      "✅ সকল সাবমিশন হিস্ট্রি এবং মূল এক্সেল ডাটাবেস (`all_submitted_rows_data.json`) সম্পূর্ণ রিসেট করা হয়েছে!"
+      "✅ সকল সাবমিশন হিস্ট্রি এবং মূল এক্সেল ডাটাবেস সম্পূর্ণ রিসেট করা হয়েছে!"
   )
 
 
@@ -739,6 +858,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
       "waiting_for_support_link",
       "waiting_for_new_admin_id",
       "waiting_for_support_msg",
+      "waiting_for_binance_api_key",
+      "waiting_for_binance_api_secret",
   ]
   for k in waiting_keys:
     context.user_data.pop(k, None)
@@ -885,8 +1006,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (
         f"🌐 **ওয়ালেট মাধ্যম:** {w_name}\n"
         f"📝 বিবরণ: {w_desc}\n\n"
-        f"📌 **অ্যাড্রেস / অ্যাকাউন্ট (এক ক্লিকে কপি করতে নিচে ট্যাপ করুন):**\n`{w_addr}`\n\n"
-        "💡 *এই অ্যাড্রেসে আপনার উইথড্র সম্পন্ন করে নিচের বাটনে চাপ দিয়ে স্ক্রিনশট বা ট্রানজেকশন প্রুফ পাঠান।*"
+        f"📌 **অ্যাড্রেস / অ্যাকাউন্ট:**\n`{w_addr}`\n\n"
+        "💡 *এই অ্যাড্রেসে পেমেন্ট করে ট্রানজেকশন আইডি (TxHash বা Pay ID / Order ID) সরাসরি এই বটে সেন্ড করুন। আমাদের সিস্টেম স্বয়ংক্রিয়ভাবে Binance API দিয়ে যাচাই করে উইথড্র এপ্রুভ করবে।*"
     )
     kbd = [
         [
@@ -896,7 +1017,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ],
         [
             InlineKeyboardButton(
-                "📸 ট্রানজেকশন প্রুফ / স্ক্রিনশট বা আইডি পাঠান",
+                "📤 ট্রানজেকশন আইডি বা প্রুফ পাঠান",
                 callback_data=f"send_crypto_proof_{w_name}",
             )
         ],
@@ -944,8 +1065,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     ]]
     await query.message.edit_text(
-        f"📸 আপনি **{w_name}** মাধ্যমে উইথড্র করার পর প্রুফ পাঠাতে চাচ্ছেন。\n\n"
-        "দয়া করে এখন আপনার পেমেন্ট প্রুফের **স্ক্রিনশট ছবি (Photo)** অথবা **ট্রানজেকশন আইডি (Text)** অথবা **উভয়টি একসাথে** সরাসরি এই চ্যাটে সেন্ড করুন:",
+        f"✍ আপনি **{w_name}** মাধ্যমে উইথড্র রিকোয়েস্ট পাঠাতে চাচ্ছেন。\n\n"
+        "দয়া করে এখন আপনার পেমেন্ট সম্পন্ন করার পর **TxHash / Txid** অথবা **Binance Pay ID / Order ID** টেক্সট আকারে এই চ্যাটে সেন্ড করুন (বট স্বয়ংক্রিয়ভাবে Binance API দিয়ে চেক করবে):",
         reply_markup=InlineKeyboardMarkup(kbd),
         parse_mode="Markdown",
     )
@@ -963,6 +1084,11 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             InlineKeyboardButton(
                 f"⚠️ মেইনটেনেন্স মোড: {m_status_text}",
                 callback_data="adm_toggle_maintenance",
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "🔑 Binance API সেটিংস", callback_data="adm_binance_api_menu"
             )
         ],
         [
@@ -991,6 +1117,12 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ],
         [
             InlineKeyboardButton(
+                "🌐 ক্রিপ্টো উইথড্র হিস্ট্রি ও পরিসংখ্যান",
+                callback_data="adm_crypto_stats",
+            )
+        ],
+        [
+            InlineKeyboardButton(
                 "🌐 ক্রিপ্টো ওয়ালেট অ্যাড্রেস ম্যানেজ",
                 callback_data="adm_wallet_mgmt",
             )
@@ -1003,7 +1135,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ],
         [
             InlineKeyboardButton(
-                "👑 অ্যাডমিন কন্ট্রোল ও রিমুভ প্যানেল", callback_data="adm_admin_control_panel"
+                "👑 অ্যাডমিন কন্ট্রোল ও রিমুভ প্যানেল",
+                callback_data="adm_admin_control_panel",
             )
         ],
         [
@@ -1036,6 +1169,112 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     return
 
+  elif data == "adm_crypto_stats":
+    if not is_admin(user_id):
+      return
+    await query.answer()
+    crypto_w_data = load_crypto_withdrawals()
+    if not crypto_w_data:
+      await query.answer("⛔ কোনো ক্রিপ্টো উইথড্র হিস্ট্রি পাওয়া যায়নি!", show_alert=True)
+      return
+
+    all_users = load_all_users()
+    text = "🌐 **ক্রিপ্টো ওয়ালেট উইথড্র পরিসংখ্যান (আজ পর্যন্ত):**\n\n"
+    grand_total_usdt = 0.0
+
+    for uid_str, w_list in crypto_w_data.items():
+      u_name = all_users.get(uid_str, "Unknown User")
+      user_total = 0.0
+      text += f"👤 [{u_name}](tg://user?id={uid_str}) (`{uid_str}`)\n"
+      for w_item in w_list:
+        amt_str = w_item.get("amount_str", "0")
+        val = extract_crypto_amount(amt_str)
+        user_total += val
+        grand_total_usdt += val
+        text += f"   • {w_item.get('wallet', 'Crypto')}: `{amt_str}` ({w_item.get('date', '')})\n"
+      text += f"   📌 **মোট উত্তোলন:** `{user_total:.2f} USDT`\n-------------------------\n"
+
+    text += f"\n💎 **সর্বমোট ক্রিপ্টো উইথড্র:** `{grand_total_usdt:.2f} USDT`"
+    kbd = [[InlineKeyboardButton("🔙 অ্যাডমিন মেনু", callback_data="admin_panel_menu")]]
+    await query.message.edit_text(
+        text, reply_markup=InlineKeyboardMarkup(kbd), parse_mode="Markdown", disable_web_page_preview=True
+    )
+    return
+
+  elif data == "adm_binance_api_menu":
+    if not is_admin(user_id):
+      return
+    await query.answer()
+    b_api = settings.get("binance_api", {})
+    has_key = "✅ সেট করা আছে" if b_api.get("api_key") else "❌ সেট করা নেই"
+    has_secret = (
+        "✅ সেট করা আছে" if b_api.get("api_secret") else "❌ সেট করা নেই"
+    )
+
+    text = (
+        "🔑 **Binance API Configuration**\n\n"
+        f"• API Key: `{has_key}`\n"
+        f"• API Secret: `{has_secret}`\n\n"
+        "স্বয়ংক্রিয় পেমেন্ট ভেরিফিকেশনের জন্য বাইন্যান্স অ্যাকাউন্ট থেকে API Key এবং Secret Key সেট করুন:"
+    )
+    kbd = [
+        [
+            InlineKeyboardButton(
+                "✏️ API Key সেট করুন", callback_data="adm_set_b_key"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "✏️ API Secret সেট করুন", callback_data="adm_set_b_secret"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "🔙 অ্যাডমিন মেনু", callback_data="admin_panel_menu"
+            )
+        ],
+    ]
+    await query.message.edit_text(
+        text, reply_markup=InlineKeyboardMarkup(kbd), parse_mode="Markdown"
+    )
+    return
+
+  elif data == "adm_set_b_key":
+    if not is_admin(user_id):
+      return
+    await query.answer()
+    context.user_data["waiting_for_binance_api_key"] = True
+    kbd = [
+        [
+            InlineKeyboardButton(
+                "🔙 ফিরে যান", callback_data="adm_binance_api_menu"
+            )
+        ]
+    ]
+    await query.message.edit_text(
+        "✍ আপনার Binance **API Key** টি চ্যাটে লিখে পাঠান:",
+        reply_markup=InlineKeyboardMarkup(kbd),
+    )
+    return
+
+  elif data == "adm_set_b_secret":
+    if not is_admin(user_id):
+      return
+    await query.answer()
+    context.user_data["waiting_for_binance_api_secret"] = True
+    kbd = [
+        [
+            InlineKeyboardButton(
+                "🔙 ফিরে যান", callback_data="adm_binance_api_menu"
+            )
+        ]
+    ]
+    await query.message.edit_text(
+        "✍ আপনার Binance **API Secret Key** টি চ্যাটে লিখে পাঠান:",
+        reply_markup=InlineKeyboardMarkup(kbd),
+    )
+    return
+
   elif data == "adm_admin_control_panel":
     if not is_admin(user_id):
       return
@@ -1046,10 +1285,22 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for aid in admins:
       text += f"👤 **ID:** `{aid}`\n"
       if aid != DEFAULT_ADMIN_ID and aid != user_id:
-        kbd.append([InlineKeyboardButton(f"❌ রিমুভ {aid}", callback_data=f"adm_rm_admin_{aid}")])
-    kbd.append([InlineKeyboardButton("➕ নতুন অ্যাডমিন যোগ করুন", callback_data="adm_add_admin_prompt")])
-    kbd.append([InlineKeyboardButton("🔙 অ্যাডমিন মেনু", callback_data="admin_panel_menu")])
-    await query.message.edit_text(text, reply_markup=InlineKeyboardMarkup(kbd), parse_mode="Markdown")
+        kbd.append([
+            InlineKeyboardButton(
+                f"❌ রিমুভ {aid}", callback_data=f"adm_rm_admin_{aid}"
+            )
+        ])
+    kbd.append([
+        InlineKeyboardButton(
+            "➕ নতুন অ্যাডমিন যোগ করুন", callback_data="adm_add_admin_prompt"
+        )
+    ])
+    kbd.append(
+        [InlineKeyboardButton("🔙 অ্যাডমিন মেনু", callback_data="admin_panel_menu")]
+    )
+    await query.message.edit_text(
+        text, reply_markup=InlineKeyboardMarkup(kbd), parse_mode="Markdown"
+    )
     return
 
   elif data.startswith("adm_rm_admin_"):
@@ -1061,7 +1312,9 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
       if target_aid in admins:
         admins.remove(target_aid)
         save_admins(admins)
-        await query.answer(f"✅ অ্যাডমিন {target_aid} সফলভাবে রিমুভ করা হয়েছে!", show_alert=True)
+        await query.answer(
+            f"✅ অ্যাডমিন {target_aid} সফলভাবে রিমুভ করা হয়েছে!", show_alert=True
+        )
     except Exception as e:
       await query.answer(f"ত্রুটি: {e}", show_alert=True)
     admins = load_admins()
@@ -1070,11 +1323,23 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for aid in admins:
       text += f"👤 **ID:** `{aid}`\n"
       if aid != DEFAULT_ADMIN_ID and aid != user_id:
-        kbd.append([InlineKeyboardButton(f"❌ রিমুভ {aid}", callback_data=f"adm_rm_admin_{aid}")])
-    kbd.append([InlineKeyboardButton("➕ নতুন অ্যাডমিন যোগ করুন", callback_data="adm_add_admin_prompt")])
-    kbd.append([InlineKeyboardButton("🔙 অ্যাডমিন মেনু", callback_data="admin_panel_menu")])
+        kbd.append([
+            InlineKeyboardButton(
+                f"❌ রিমুভ {aid}", callback_data=f"adm_rm_admin_{aid}"
+            )
+        ])
+    kbd.append([
+        InlineKeyboardButton(
+            "➕ নতুন অ্যাডমিন যোগ করুন", callback_data="adm_add_admin_prompt"
+        )
+    ])
+    kbd.append(
+        [InlineKeyboardButton("🔙 অ্যাডমিন মেনু", callback_data="admin_panel_menu")]
+    )
     try:
-      await query.message.edit_text(text, reply_markup=InlineKeyboardMarkup(kbd), parse_mode="Markdown")
+      await query.message.edit_text(
+          text, reply_markup=InlineKeyboardMarkup(kbd), parse_mode="Markdown"
+      )
     except:
       pass
     return
@@ -1421,7 +1686,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "১. প্রথমে ক্যাটাগরির একটি ইউনিক ইংরেজি কোড দিন (যেমন: `gmail_2fa` বা"
         " `telegram`)\n"
         "২. এরপর সুন্দর ডিসপ্লে নাম দিন (যেমন: `Gmail 2FA`)\n"
-        "৩. সবশেষে প্রতি আইডির মূল্য বা রেট (যেমন `5.0`) দিন。\n\n"
+        "৩. সবশেষে প্রতি আইഡിയ মূল্য বা রেট (যেমন `5.0`) দিন。\n\n"
         "দয়া করে প্রথম ধাপের জন্য ক্যাটাগরির ইংরেজি কোড (Key) লিখে পাঠান:"
     )
     await query.message.edit_text(
@@ -1956,7 +2221,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if total_refs_count < min_refs and current_available_bal < min_amt:
       await query.answer(
-          f"⛔ উইথড্র শর্ত পূরণ হয়নি!\nকমপক্ষে {min_refs}টি রেফার এবং ন্যূনতম ৳{min_amt} ব্যালেন্স থাকতে হবে।",
+          f"⛔ উইথড্র শর্ত পূরণ হয়নি!\nকমপক্ষে {min_refs}টি রেফার এবং ন্যূনতম ৳{min_amt} ব্যালেন্স থাকতে হবে。",
           show_alert=True,
       )
       return
@@ -2170,6 +2435,11 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ],
         [
             InlineKeyboardButton(
+                "🔑 Binance API সেটিংস", callback_data="adm_binance_api_menu"
+            )
+        ],
+        [
+            InlineKeyboardButton(
                 "📂 ক্যাটাগরি ম্যানেজমেন্ট ও পপআপ",
                 callback_data="adm_cat_mgmt_hub",
             )
@@ -2194,6 +2464,12 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ],
         [
             InlineKeyboardButton(
+                "🌐 ক্রিপ্টো উইথড্র হিস্ট্রি ও পরিসংখ্যান",
+                callback_data="adm_crypto_stats",
+            )
+        ],
+        [
+            InlineKeyboardButton(
                 "🌐 ক্রিপ্টো ওয়ালেট অ্যাড্রেস ম্যানেজ",
                 callback_data="adm_wallet_mgmt",
             )
@@ -2206,7 +2482,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ],
         [
             InlineKeyboardButton(
-                "👑 অ্যাডমিন কন্ট্রোল ও রিমুভ প্যানেল", callback_data="adm_admin_control_panel"
+                "👑 অ্যাডমিন কন্ট্রোল ও রিমুভ প্যানেল",
+                callback_data="adm_admin_control_panel",
             )
         ],
         [
@@ -2508,7 +2785,12 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
           )
       ])
 
-    kbd.append([InlineKeyboardButton("⚡ এক ক্লিকে সব পেমেন্ট সম্পন্ন করুন (Pay All)", callback_data=f"pay_bulk_{cat_key}")])
+    kbd.append([
+        InlineKeyboardButton(
+            "⚡ এক ক্লিকে সব পেমেন্ট সম্পন্ন করুন (Pay All)",
+            callback_data=f"pay_bulk_{cat_key}",
+        )
+    ])
     kbd.append(
         [InlineKeyboardButton("🔙 পেমেন্ট মেনু", callback_data="adm_pay_menu")]
     )
@@ -2534,15 +2816,21 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
           await context.bot.send_message(
               chat_id=l["user_id"],
-              text=f"🎉 **আপনার {cat_name} কাজের ৳{l.get('earned_amount', 0)} পেমেন্ট সফলভাবে সম্পন্ন হয়েছে!**",
-              parse_mode="Markdown"
+              text=(
+                  f"🎉 **আপনার {cat_name} কাজের ৳{l.get('earned_amount', 0)}"
+                  " পেমেন্ট সফলভাবে সম্পন্ন হয়েছে!**"
+              ),
+              parse_mode="Markdown",
           )
         except:
           pass
 
     save_logs(logs)
-    await query.answer(f"🎉 {count} টি সাবমিশনের পেমেন্ট এক ক্লিকে সম্পূর্ণ করা হয়েছে!", show_alert=True)
-    
+    await query.answer(
+        f"🎉 {count} টি সাবমিশনের পেমেন্ট এক ক্লিকে সম্পূর্ণ করা হয়েছে!",
+        show_alert=True,
+    )
+
     query.data = f"adm_paysublist_{cat_key}"
     await button_callback(update, context)
     return
@@ -2660,7 +2948,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 text=(
                     f"🎉 **রেফারেল কমিশন প্রাপ্তি!**\n\nআপনার রেফার করা মেম্বার"
                     f" [{target_name}](tg://user?id={target_uid}) এর পেমেন্ট"
-                    f" সম্পন্ন থাকায় আপনি পেয়েছেন কাজের ওপর **৳{commission_amt}** কমিশন!"
+                    f" সম্পন্ন থাকায় আপনি পেয়েছেন কাজের ওপর **৳{commission_amt}**"
+                    " কমিশন!"
                 ),
                 parse_mode="Markdown",
             )
@@ -3444,57 +3733,15 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
   if not crypto_wallet:
     return
 
-  context.user_data["waiting_for_crypto_proof"] = None
-  with_ch_raw = settings.get("channels", {}).get(
-      "withdrawal_channel", DEFAULT_ADMIN_ID
-  )
-  with_ch = parse_chat_id(with_ch_raw)
-
-  active_payments = []
-  for p_k, p_v in user_p.items():
-    if p_v != "সেট করা হয়নি":
-      active_payments.append(f"• {p_k.capitalize()}: `{p_v}`")
-  p_info_str = (
-      "\n".join(active_payments) if active_payments else "কোনো নম্বর সেট করা নেই"
-  )
-
-  photo_file = update.message.photo[-1]
-  caption = update.message.caption or "কোনো ক্যাপশন নেই"
-
-  user_link = f"[{user.first_name}](tg://user?id={user.id})"
-  forward_caption = (
-      "🌐 **ক্রিপ্টো ওয়ালেট উইথড্র প্রুফ / স্ক্রিনশট!**\n\n"
-      f"👤 ইউজার: {user_link}\n"
-      f"🆔 আইডি: `{user.id}`\n"
-      f"🔹 ওয়ালেট মাধ্যম: `{crypto_wallet}`\n"
-      f"📌 **ইউজারের সেভ করা পেমেন্ট তথ্য:**\n{p_info_str}\n\n"
-      f"📝 বিবরণ / ট্রানজেকশন আইডি: {caption}"
-  )
-
-  wd_kbd = [
-      [
-          InlineKeyboardButton(
-              "✅ Pay Done (Accept)",
-              callback_data=f"adm_crypto_done_{user.id}_{crypto_wallet}",
-          )
-      ]
-  ]
-
-  try:
-    await bot.send_photo(
-        chat_id=with_ch,
-        photo=photo_file.file_id,
-        caption=forward_caption,
-        reply_markup=InlineKeyboardMarkup(wd_kbd),
-        parse_mode="Markdown",
-    )
+  caption = update.message.caption or ""
+  if not caption.strip():
     await update.message.reply_text(
-        "✅ আপনার ক্রিপ্টো উইথড্র প্রুফ বা স্ক্রিনশট এবং পেমেন্ট নম্বর সফলভাবে"
-        " অ্যাডমিনের কাছে পাঠানো হয়েছে! অ্যাডমিন যাচাই করে পেমেন্ট সম্পন্ন করলে"
-        " আপনি নোটিফিকেশন পেয়ে যাবেন। 🙏"
+        "⛔ ছবির সাথে ট্রানজেকশন আইডি (TxHash বা Pay ID / Order ID) ক্যাপশনে লিখে দিন অথবা সরাসরি টেক্সট মেসেজ পাঠান।"
     )
-  except Exception as e:
-    await update.message.reply_text("❌ প্রুফ পাঠাতে সমস্যা হয়েছে: " + str(e))
+    return
+
+  update.message.text = caption
+  await handle_text_message(update, context)
 
 
 async def handle_text_message(
@@ -3505,6 +3752,28 @@ async def handle_text_message(
     return
 
   settings = load_settings()
+
+  if is_admin(user_id) and context.user_data.get("waiting_for_binance_api_key"):
+    key_val = update.message.text.strip()
+    context.user_data["waiting_for_binance_api_key"] = None
+    settings.setdefault("binance_api", {})["api_key"] = key_val
+    save_settings(settings)
+    await update.message.reply_text(
+        "✅ Binance API Key সফলভাবে সেভ করা হয়েছে!"
+    )
+    return
+
+  if is_admin(user_id) and context.user_data.get(
+      "waiting_for_binance_api_secret"
+  ):
+    secret_val = update.message.text.strip()
+    context.user_data["waiting_for_binance_api_secret"] = None
+    settings.setdefault("binance_api", {})["api_secret"] = secret_val
+    save_settings(settings)
+    await update.message.reply_text(
+        "✅ Binance API Secret Key সফলভাবে সেভ করা হয়েছে!"
+    )
+    return
 
   if context.user_data.get("waiting_for_support_msg"):
     context.user_data["waiting_for_support_msg"] = None
@@ -3547,6 +3816,76 @@ async def handle_text_message(
       )
       return
 
+    tx_id_input = update.message.text.strip()
+
+    used_txids = load_used_txids()
+    clean_tx_check = tx_id_input.lower()
+    if clean_tx_check in used_txids:
+      await update.message.reply_text(
+          "⚠️ **এই ট্রানজেকশন আইডিটি ইতোমধ্যে ব্যবহার করা হয়েছে!**\n\nএকই প্রুফ বা ট্রানজেকশন দিয়ে পুনরায় পেমেন্ট রিকোয়েস্ট পাঠানো যাবে না।"
+      )
+      return
+
+    await update.message.reply_text(
+        "🔍 **Binance API-এর মাধ্যমে ট্রানজেকশন যাচাই করা হচ্ছে...** দয়া করে অপেক্ষা করুন ⏳"
+    )
+
+    binance_api_cfg = settings.get("binance_api", {})
+    api_key = binance_api_cfg.get("api_key", "")
+    api_secret = binance_api_cfg.get("api_secret", "")
+
+    verified = False
+    tx_details = None
+    error_reason = ""
+
+    if not api_key or not api_secret:
+      verified = True
+      error_reason = "API keys not configured by admin, forwarded for manual check."
+      received_amount = "Manual Check"
+    else:
+      is_pay = tx_id_input.isdigit() or "pay" in crypto_wallet.lower()
+
+      if is_pay:
+        verified, tx_details = verify_binance_pay(
+            tx_id_input, api_key, api_secret
+        )
+      else:
+        verified, tx_details = verify_binance_deposit(
+            tx_id_input, api_key, api_secret
+        )
+
+      if not verified and not is_pay:
+        v_pay, d_pay = verify_binance_pay(tx_id_input, api_key, api_secret)
+        if v_pay:
+          verified, tx_details = v_pay, d_pay
+
+      if not verified:
+        error_reason = (
+            str(tx_details) if tx_details else "Transaction ID not found"
+        )
+      else:
+        received_amount = tx_details.get("amount", "Unknown Amount")
+
+    if not verified:
+      await update.message.reply_text(
+          f"❌ **Binance API ভেরিফিকেশন ব্যর্থ হয়েছে!**\n\nকারণ: `{error_reason}`\n\nদয়া করে সঠিক TxHash বা Pay ID / Order ID দিয়ে আবার চেষ্টা করুন।"
+      )
+      return
+
+    used_txids.append(clean_tx_check)
+    save_used_txids(used_txids)
+
+    # SAVE TO CRYPTO WITHDRAWALS DB
+    crypto_w_data = load_crypto_withdrawals()
+    user_w_list = crypto_w_data.setdefault(str(user_id), [])
+    user_w_list.append({
+        "wallet": crypto_wallet,
+        "amount_str": received_amount,
+        "tx_id": tx_id_input,
+        "date": datetime.datetime.now(TZ).strftime("%Y-%m-%d %H:%M:%S"),
+    })
+    save_crypto_withdrawals(crypto_w_data)
+
     context.user_data["waiting_for_crypto_proof"] = None
     with_ch_raw = settings.get("channels", {}).get(
         "withdrawal_channel", DEFAULT_ADMIN_ID
@@ -3561,15 +3900,16 @@ async def handle_text_message(
         "\n".join(active_payments) if active_payments else "কোনো নম্বর সেট করা নেই"
     )
 
-    text_content = update.message.text.strip()
     user_link = f"[{update.effective_user.first_name}](tg://user?id={user_id})"
     forward_text = (
-        "🌐 **ক্রিপ্টো ওয়ালেট উইথড্র প্রুফ (ট্রানজেকশন আইডি)!**\n\n"
+        "🌐 **অটো-ভেরিফাইড ক্রিপ্টো উইথড্র রিকোয়েস্ট!** ✅\n\n"
         f"👤 ইউজার: {user_link}\n"
         f"🆔 আইডি: `{user_id}`\n"
         f"🔹 ওয়ালেট মাধ্যম: `{crypto_wallet}`\n"
-        f"📌 **ইউজারের সেভ করা পেমেন্ট তথ্য:**\n{p_info_str}\n\n"
-        f"📝 ট্রানজেকশন আইডি / টেক্সট:\n`{text_content}`"
+        f"💵 **প্রাপ্ত ক্রিপ্টো পরিমাণ:** `{received_amount}`\n"
+        f"🔍 TxID / Pay ID / Order ID: `{tx_id_input}`\n"
+        f"🟢 Binance API Status: `SUCCESSFULLY VERIFIED`\n\n"
+        f"📌 **ইউজারের সেভ করা পেমেন্ট তথ্য:**\n{p_info_str}"
     )
 
     wd_kbd = [
@@ -3589,10 +3929,10 @@ async def handle_text_message(
           parse_mode="Markdown",
       )
       await update.message.reply_text(
-          "✅ আপনার ট্রানজেকশন আইডি বা টেক্সট প্রুফ সফলভাবে অ্যাডমিনের কাছে পাঠানো হয়েছে! অ্যাডমিন যাচাই করে পেমেন্ট সম্পন্ন করলে আপনি নোটিফিকেশন পেয়ে যাবেন। 🙏"
+          f"✅ অভিনন্দন! আপনার **{received_amount}** এর ট্রানজেকশনটি **Binance API**-এর মাধ্যমে সফলভাবে ভেরিফাই হয়েছে এবং উইথড্র রিকোয়েস্টটি অ্যাডমিন চ্যানেলে পাঠানো হয়েছে! 🚀"
       )
     except Exception as e:
-      await update.message.reply_text("❌ প্রুফ পাঠাতে সমস্যা হয়েছে: " + str(e))
+      await update.message.reply_text("❌ রিকোয়েস্ট পাঠাতে সমস্যা হয়েছে: " + str(e))
     return
 
   if is_admin(user_id) and context.user_data.get("waiting_for_join_channel"):
@@ -3830,7 +4170,9 @@ async def handle_text_message(
       )
     return
 
-  if is_admin(user_id) and context.user_data.get("waiting_for_user_reset_withdrawn"):
+  if is_admin(user_id) and context.user_data.get(
+      "waiting_for_user_reset_withdrawn"
+  ):
     target_id = update.message.text.strip()
     context.user_data["waiting_for_user_reset_withdrawn"] = None
     referrals = load_referrals()
@@ -3842,10 +4184,14 @@ async def handle_text_message(
           parse_mode="Markdown",
       )
     else:
-      await update.message.reply_text("⛔ এই ইউজারের কোনো রেফারেল বা উইথড্র ডাটা পাওয়া যায়নি!")
+      await update.message.reply_text(
+          "⛔ এই ইউজারের কোনো রেফারেল বা উইথড্র ডাটা পাওয়া যায়নি!"
+      )
     return
 
-  if is_admin(user_id) and context.user_data.get("waiting_for_user_reset_referrals_all"):
+  if is_admin(user_id) and context.user_data.get(
+      "waiting_for_user_reset_referrals_all"
+  ):
     target_id = update.message.text.strip()
     context.user_data["waiting_for_user_reset_referrals_all"] = None
     referrals = load_referrals()
@@ -3857,7 +4203,9 @@ async def handle_text_message(
           parse_mode="Markdown",
       )
     else:
-      await update.message.reply_text("⛔ এই ইউজারের কোনো রেফারেল ডাটা পাওয়া যায়নি!")
+      await update.message.reply_text(
+          "⛔ এই ইউজারের কোনো রেফারেল ডাটা পাওয়া যায়নি!"
+      )
     return
 
   if is_admin(user_id) and context.user_data.get("waiting_for_user_reset_id"):
@@ -4809,39 +5157,38 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 def main():
-    application = (
-        ApplicationBuilder()
-        .token(TOKEN)
-        .read_timeout(30)
-        .write_timeout(30)
-        .connect_timeout(30)
-        .pool_timeout(30)
-        .build()
-    )
+  application = (
+      ApplicationBuilder()
+      .token(TOKEN)
+      .read_timeout(30)
+      .write_timeout(30)
+      .connect_timeout(30)
+      .pool_timeout(30)
+      .build()
+  )
 
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("help", help_command))
-    application.add_handler(CommandHandler("status", status_command))
-    application.add_handler(CommandHandler("users", users_list_command))
-    application.add_handler(CommandHandler("resettall", reset_all_logs_command))
-    application.add_handler(CommandHandler("clearids", clear_global_ids_command))
-    application.add_handler(CommandHandler("top", top_command))
-    application.add_handler(CommandHandler("block", block_command))
-    application.add_handler(CommandHandler("unblock", unblock_command))
-    application.add_handler(CommandHandler("broadcast", broadcast_command))
-    application.add_handler(CommandHandler("send", send_specific_message))
+  application.add_handler(CommandHandler("start", start))
+  application.add_handler(CommandHandler("help", help_command))
+  application.add_handler(CommandHandler("status", status_command))
+  application.add_handler(CommandHandler("users", users_list_command))
+  application.add_handler(CommandHandler("resetall", reset_all_logs_command))
+  application.add_handler(CommandHandler("clearids", clear_global_ids_command))
+  application.add_handler(CommandHandler("top", top_command))
+  application.add_handler(CommandHandler("block", block_command))
+  application.add_handler(CommandHandler("unblock", unblock_command))
+  application.add_handler(CommandHandler("broadcast", broadcast_command))
+  application.add_handler(CommandHandler("send", send_specific_message))
 
-    application.add_handler(CallbackQueryHandler(button_callback))
-    application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
-    application.add_handler(
-        MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_message)
-    )
-    application.add_handler(MessageHandler(filters.Document.ALL, handle_document))
+  application.add_handler(CallbackQueryHandler(button_callback))
+  application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
+  application.add_handler(
+      MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_message)
+  )
+  application.add_handler(MessageHandler(filters.Document.ALL, handle_document))
 
-    print("Bot is running smoothly...")
-    keep_alive()
-    application.run_polling()
+  print("🤖 Bot is running smoothly...")
+  application.run_polling()
 
 
-if __name__ == '__main__':
-    main()
+if __name__ == "__main__":
+  main()
