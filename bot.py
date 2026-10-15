@@ -1,4 +1,3 @@
-from keep_alive import keep_alive
 import datetime
 import hashlib
 import hmac
@@ -1557,7 +1556,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"• সাবমিশন চ্যানেল: `{sub_ch}`\n"
         f"• উইথড্র ও নোটিফিকেশন চ্যানেল: `{with_ch}`\n"
         f"• সাপোর্ট আইডি/লিংক: `{supp_link}`\n\n"
-        "*(টিপস: সাপোর্ট লিংকে `bot` লিখলে ইউজার সরাসরি বটের ভেতরই সাপোর্ট মেসেজ পাঠাতে পারবে)*\n\n"
+        "*(নোট: সাপোর্ট লিংকে `bot` লিখলে ইউজার সরাসরি বটের ভেতরই সাপোর্ট মেসেজ পাঠাতে পারবে)*\n\n"
         "পরিবর্তন করতে নিচের বাটনগুলোতে ক্লিক করুন:"
     )
     kbd = [
@@ -3848,7 +3847,6 @@ async def handle_text_message(
     used_txids = load_used_txids()
     clean_tx_check = tx_id_input.lower()
 
-    # ডুপ্লিকেট ট্রানজেকশন প্রুফ চেক ও সতর্কবার্তা
     if clean_tx_check in used_txids:
       await update.message.reply_text(
           f"⚠️ **সতর্কবার্তা {user.first_name}!**\n\n"
@@ -3882,7 +3880,6 @@ async def handle_text_message(
         print(f"Error sending fraud alert to admin channel: {e}")
       return
 
-    # চ্যাট ক্লিন রাখার জন্য সিঙ্গেল মেসেজ এডিট ফ্লো
     status_msg = await update.message.reply_text(
         f"🔍 **{user.first_name}**, Binance API-এর মাধ্যমে ট্রানজেকশন যাচাই করা হচ্ছে... ⏳",
         parse_mode="Markdown",
@@ -3934,7 +3931,6 @@ async def handle_text_message(
     used_txids.append(clean_tx_check)
     save_used_txids(used_txids)
 
-    # SAVE TO CRYPTO WITHDRAWALS DB
     crypto_w_data = load_crypto_withdrawals()
     user_w_list = crypto_w_data.setdefault(str(user_id), [])
     user_w_list.append({
@@ -5256,5 +5252,4 @@ def main():
 
 
 if __name__ == "__main__":
-  keep_alive()  # ফ্লাস্ক ব্যাকগ্রাউন্ড সার্ভার চালু করবে
   main()
