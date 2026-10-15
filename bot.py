@@ -6,6 +6,8 @@ import os
 import re
 import time
 from urllib.parse import urlencode
+from flask import Flask
+import threading
 import numpy as np
 import openpyxl
 from openpyxl.styles import PatternFill
@@ -21,6 +23,26 @@ from telegram.ext import (
     MessageHandler,
     filters,
 )
+
+# --- ফ্লাস্ক সার্ভার (Render-এ ২৪/৭ সচল রাখার জন্য) ---
+app = Flask('')
+
+
+@app.route('/')
+def home():
+  print("Bot is alive and running!")
+  return "Bot is active!"
+
+
+def run_flask():
+  app.run(host='0.0.0.0', port=8080)
+
+
+def keep_alive():
+  t = threading.Thread(target=run_flask)
+  t.daemon = True
+  t.start()
+
 
 TOKEN = "8740758744:AAF551GI6y42aXKDWdvHrM04yanX4Wo0Uj0"
 DEFAULT_ADMIN_ID = 6945991387
@@ -478,7 +500,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
   blocked_users = load_blocked_users()
   if user.id in blocked_users:
-    msg = "⛔ দুঃখিত, আপনাকে এই বট ব্যবহার করা থেকে ব্লক করা হয়েছে।"
+    msg = f"⛔ দুঃখিত {user.first_name}, আপনাকে এই বট ব্যবহার করা থেকে ব্লক করা হয়েছে।"
     if update.callback_query:
       await update.callback_query.message.reply_text(msg)
     else:
@@ -487,7 +509,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
   if MAINTENANCE_MODE and not is_admin(user.id):
     msg = (
-        "দুঃখিত, বটটি বর্তমানে রক্ষণাবেক্ষণ (Maintenance) মোডে রয়েছে। অনুগ্রহ"
+        f"দুঃখিত {user.first_name}, বটটি বর্তমানে রক্ষণাবেক্ষণ (Maintenance) মোডে রয়েছে। অনুগ্রহ"
         " করে পরে চেষ্টা করুন।"
     )
     if update.callback_query:
@@ -498,12 +520,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
   settings = load_settings()
   join_ch = settings.get("channels", {}).get("join_channel", "@OMORTECH")
-  link_url, link_display = format_channel_link(join_ch)
+  link_url, link_disp = format_channel_link(join_ch)
 
   is_member = await check_channel_membership(bot, user.id)
   if not is_member:
     join_msg = (
-        "⛔ **চ্যানেলে জয়েন করা বাধ্যতামূলক!**\n\n"
+        f"⛔ **{user.first_name}, চ্যানেলে জয়েন করা বাধ্যতামূলক!**\n\n"
         "বটটি ব্যবহার করতে হলে প্রথমে আমাদের অফিসিয়াল চ্যানেলে জয়েন করতে"
         " হবে। নিচের বাটনে ক্লিক করে জয়েন করুন:\n\n"
         f"✨ চ্যানেলে জয়েন করার পর নিচের **🔄 স্টার্ট / রিফ্রেশ করুন** বাটনে"
@@ -578,9 +600,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
           pass
 
   welcome_msg = (
-      f"👋 **স্বাগতম! আমাদের প্রিমিয়াম ফাইল সাবমিট সিস্টেমে আপনাকে স্বাগতম। 🌟**"
-      f" {user.first_name}!\n\n📌 ফাইল সাবমিট করতে বা অন্যান্য সুবিধা পেতে নিচের"
-      " বাটনগুলো ব্যবহার করুন:"
+      f"👋 **স্বাগতম {user.first_name}! আমাদের প্রিমিয়াম ফাইল সাবমিট সিস্টেমে আপনাকে স্বাগতম। 🌟**\n\n"
+      "📌 ফাইল সাবমিট করতে বা অন্যান্য সুবিধা পেতে নিচের বাটনগুলো ব্যবহার করুন:"
   )
 
   support_link_val = (
@@ -661,11 +682,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+  user = update.effective_user
   await update.message.reply_text(
-      "💡 **সাহায্য ও নির্দেশিকা:**\n\n1. প্রথমে বট মেনু থেকে **⚙ পেমেন্ট সেটিংস** এ"
-      " গিয়ে আপনার পেমেন্ট নম্বর সেট করুন।\n2. পছন্দের ক্যাটাগরিতে ক্লিক করে"
-      " সঠিক ফরম্যাটের এক্সেল ফাইল আপলোড করুন।\n3. কোনো সমস্যা হলে সাপোর্ট আইডিতে"
-      " যোগাযোগ করুন।",
+      f"💡 **সাহায্য ও নির্দেশিকা ({user.first_name}):**\n\n1. প্রথমে বট মেনু থেকে **⚙ পেমেন্ট সেটিংস** এ গিয়ে আপনার পেমেন্ট নম্বর সেট করুন।\n2. পছন্দের ক্যাটাগরিতে ক্লিক করে সঠিক ফরম্যাটের এক্সেল ফাইল আপলোড করুন।\n3. কোনো সমস্যা হলে সাপোর্ট আইডিতে যোগাযোগ করুন।",
       parse_mode="Markdown",
   )
 
@@ -828,7 +847,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
   global MAINTENANCE_MODE
   query = update.callback_query
   data = query.data
-  user_id = update.effective_user.id
+  user = update.effective_user
+  user_id = user.id
 
   waiting_keys = [
       "waiting_for_popup_closed",
@@ -865,12 +885,12 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.pop(k, None)
 
   if user_id in load_blocked_users():
-    await query.answer("⛔ আপনাকে ব্লক করা হয়েছে!", show_alert=True)
+    await query.answer(f"⛔ {user.first_name}, আপনাকে ব্লক করা হয়েছে!", show_alert=True)
     return
 
   if MAINTENANCE_MODE and not is_admin(user_id):
     await query.answer(
-        "দুঃখিত, বটটি বর্তমানে রক্ষণাবেক্ষণ (Maintenance) মোডে রয়েছে। অনুগ্রহ"
+        f"দুঃখিত {user.first_name}, বটটি বর্তমানে রক্ষণাবেক্ষণ (Maintenance) মোডে রয়েছে। অনুগ্রহ"
         " করে পরে চেষ্টা করুন।",
         show_alert=True,
     )
@@ -883,7 +903,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
   if not is_member and data != "back_home":
     await query.answer(
-        f"⛔ প্রথমে আমাদের চ্যানেলে জয়েন করুন: {link_disp}", show_alert=True
+        f"⛔ {user.first_name}, প্রথমে আমাদের চ্যানেলে জয়েন করুন: {link_disp}", show_alert=True
     )
     return
 
@@ -895,7 +915,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["waiting_for_support_msg"] = True
     kbd = [[InlineKeyboardButton("🔙 মূল মেনু", callback_data="back_home")]]
     await query.message.edit_text(
-        "📞 **সাপোর্ট সেন্টার**\n\n"
+        f"📞 **সাপোর্ট সেন্টার ({user.first_name})**\n\n"
         "আপনার কি সমস্যা হচ্ছে তা অনুগ্রহ করে বিস্তারিত লিখে পাঠান। "
         "আপনি চাইলে **মেসেজ, স্ক্রিনশট ছবি অথবা উভয়টি** একসাথে পাঠাতে পারেন। "
         "আপনার মেসেজটি সরাসরি আমাদের অ্যাডমিন টিমের কাছে পৌঁছে যাবে। 📩",
@@ -959,7 +979,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
     await query.message.edit_text(
         f"📂 ক্যাটাগরি: **{cat_info['name']}**{rate_text}\n\n📌 সঠিক"
-        f" নিয়মাবলী:\n• {col_a_desc}\n• কলাম B: Password\n• {col_c_desc}\n\n📁"
+        f" নিয়মাবলী {user.first_name}:\n• {col_a_desc}\n• কলাম B: Password\n• {col_c_desc}\n\n📁"
         " এখন আপনার এক্সেল ফাইলটি (.xlsx) সরাসরি এই বটে সেন্ড করুন। 📥",
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode="Markdown",
@@ -970,7 +990,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     wallets = settings.get("wallets", {})
     text = (
-        "🌐 **ক্রিপ্টো ও ওয়ালেট উইথড্র অ্যাড্রেসসমূহ:**\n\nনিচের মাধ্যম বা"
+        f"🌐 **ক্রিপ্টো ও ওয়ালেট উইথড্র অ্যাড্রেসসমূহ ({user.first_name}):**\n\nনিচের মাধ্যম বা"
         " ওয়ালেটগুলো থেকে আপনার পছন্দমতো মাধ্যমে উইথড্র করতে পারেন:\n\n"
     )
     kbd = []
@@ -1007,7 +1027,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🌐 **ওয়ালেট মাধ্যম:** {w_name}\n"
         f"📝 বিবরণ: {w_desc}\n\n"
         f"📌 **অ্যাড্রেস / অ্যাকাউন্ট:**\n`{w_addr}`\n\n"
-        "💡 *এই অ্যাড্রেসে পেমেন্ট করে ট্রানজেকশন আইডি (TxHash বা Pay ID / Order ID) সরাসরি এই বটে সেন্ড করুন। আমাদের সিস্টেম স্বয়ংক্রিয়ভাবে Binance API দিয়ে যাচাই করে উইথড্র এপ্রুভ করবে।*"
+        f"💡 *{user.first_name}, এই অ্যাড্রেসে পেমেন্ট করে ট্রানজেকশন আইডি (TxHash বা Pay ID / Order ID) সরাসরি এই বটে সেন্ড করুন। আমাদের সিস্টেম স্বয়ংক্রিয়ভাবে Binance API দিয়ে যাচাই করে উইথড্র এপ্রুভ করবে।*"
     )
     kbd = [
         [
@@ -1050,7 +1070,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     if not has_valid_payment and not is_admin(user_id):
       await query.answer(
-          "⛔ উইথড্র করার পূর্বে অন্তত একটি পেমেন্ট নম্বর বা ওয়ালেট তথ্য সেট করা"
+          f"⛔ {user.first_name}, উইথড্র করার পূর্বে অন্তত একটি পেমেন্ট নম্বর বা ওয়ালেট তথ্য সেট করা"
           " বাধ্যতামূলক! প্রথমে পেমেন্ট সেটিংস থেকে সেট করুন।",
           show_alert=True,
       )
@@ -1065,7 +1085,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     ]]
     await query.message.edit_text(
-        f"✍ আপনি **{w_name}** মাধ্যমে উইথড্র রিকোয়েস্ট পাঠাতে চাচ্ছেন。\n\n"
+        f"✍ {user.first_name}, আপনি **{w_name}** মাধ্যমে উইথড্র রিকোয়েস্ট পাঠাতে চাচ্ছেন。\n\n"
         "দয়া করে এখন আপনার পেমেন্ট সম্পন্ন করার পর **TxHash / Txid** অথবা **Binance Pay ID / Order ID** টেক্সট আকারে এই চ্যাটে সেন্ড করুন (বট স্বয়ংক্রিয়ভাবে Binance API দিয়ে চেক করবে):",
         reply_markup=InlineKeyboardMarkup(kbd),
         parse_mode="Markdown",
@@ -1162,7 +1182,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ],
     ]
     await query.message.edit_text(
-        "🛠 **অ্যাডমিন কন্ট্রোল প্যানেল (মাস্টার হাব)**\n\nনিচের অপশনগুলো থেকে আপনার"
+        f"🛠 **অ্যাডমিন কন্ট্রোল প্যানেল (মাস্টার হাব) - {user.first_name}**\n\nনিচের অপশনগুলো থেকে আপনার"
         " বট সম্পূর্ণ নিয়ন্ত্রণ করুন:",
         reply_markup=InlineKeyboardMarkup(admin_keyboard),
         parse_mode="Markdown",
@@ -1252,7 +1272,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
     ]
     await query.message.edit_text(
-        "✍ আপনার Binance **API Key** টি চ্যাটে লিখে পাঠান:",
+        f"✍ {user.first_name}, আপনার Binance **API Key** টি চ্যাটে লিখে পাঠান:",
         reply_markup=InlineKeyboardMarkup(kbd),
     )
     return
@@ -1270,7 +1290,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
     ]
     await query.message.edit_text(
-        "✍ আপনার Binance **API Secret Key** টি চ্যাটে লিখে পাঠান:",
+        f"✍ {user.first_name}, আপনার Binance **API Secret Key** টি চ্যাটে লিখে পাঠান:",
         reply_markup=InlineKeyboardMarkup(kbd),
     )
     return
@@ -1585,7 +1605,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
     ]
     await query.message.edit_text(
-        "✍ নতুন জয়েন চ্যানেলের ইউজারনেম, আইডি বা ইনভাইট লিংক লিখে পাঠান (যেমন:"
+        f"✍ {user.first_name}, নতুন জয়েন চ্যানেলের ইউজারনেম, আইডি বা ইনভাইট লিংক লিখে পাঠান (যেমন:"
         " `@MyChannel` বা ব্যক্তিগত আইডি `-100...`):",
         reply_markup=InlineKeyboardMarkup(kbd),
     )
@@ -1604,7 +1624,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
     ]
     await query.message.edit_text(
-        "✍ নতুন সাবমিশন চ্যানেলের ইউজারনেম বা আইডি লিখে পাঠান (যেমন:"
+        f"✍ {user.first_name}, নতুন সাবমিশন চ্যানেলের ইউজারনেম বা আইডি লিখে পাঠান (যেমন:"
         " `@MyChannel` বা `-100...`):",
         reply_markup=InlineKeyboardMarkup(kbd),
     )
@@ -1623,7 +1643,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
     ]
     await query.message.edit_text(
-        "✍ নতুন উইথড্র চ্যানেল বা গ্রুপের ইউজারনেম/আইডি লিখে পাঠান (যেমন:"
+        f"✍ {user.first_name}, নতুন উইথড্র চ্যানেল বা গ্রুপের ইউজারনেম/আইডি লিখে পাঠান (যেমন:"
         " `@MyWithdrawChannel` বা `-100...`):",
         reply_markup=InlineKeyboardMarkup(kbd),
     )
@@ -1642,7 +1662,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
     ]
     await query.message.edit_text(
-        "✍ নতুন সাপোর্ট আইডি, ইউজারনেম বা লিংক লিখে পাঠান (যেমন: `https://t.me/YourUsername` বা `@YourUsername`)。\n\n"
+        f"✍ {user.first_name}, নতুন সাপোর্ট আইডি, ইউজারনেম বা লিংক লিখে পাঠান (যেমন: `https://t.me/YourUsername` বা `@YourUsername`)。\n\n"
         "💡 *যদি চান ইউজার সরাসরি বটের ভেতরেই মেসেজ ও ছবি পাঠাবে, তবে শুধু `bot` লিখে পাঠান।*",
         reply_markup=InlineKeyboardMarkup(kbd),
         parse_mode="Markdown",
@@ -1662,7 +1682,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
     ]
     await query.message.edit_text(
-        "👑 নতুন অ্যাডমিনের **Telegram User ID** (যেমন: `6945991387`) চ্যাটে লিখে"
+        f"👑 {user.first_name}, নতুন অ্যাডমিনের **Telegram User ID** (যেমন: `6945991387`) চ্যাটে লিখে"
         " পাঠান:",
         reply_markup=InlineKeyboardMarkup(kbd),
         parse_mode="Markdown",
@@ -1682,7 +1702,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
     ]
     instructions = (
-        "➕ **নতুন ক্যাটাগরি যোগ করার নিয়ম:**\n\n"
+        f"➕ **নতুন ক্যাটাগরি যোগ করার নিয়ম ({user.first_name}):**\n\n"
         "১. প্রথমে ক্যাটাগরির একটি ইউনিক ইংরেজি কোড দিন (যেমন: `gmail_2fa` বা"
         " `telegram`)\n"
         "২. এরপর সুন্দর ডিসপ্লে নাম দিন (যেমন: `Gmail 2FA`)\n"
@@ -1708,7 +1728,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["waiting_for_add_wallet_name_step"] = True
     kbd = [[InlineKeyboardButton("🔙 ফিরে যান", callback_data="adm_wallet_mgmt")]]
     await query.message.edit_text(
-        "✍ নতুন ওয়ালেটের নাম (যেমন: `Binance Pay` বা `USDT (TRC20)`) লিখে চ্যাটে পাঠান:",
+        f"✍ {user.first_name}, নতুন ওয়ালেটের নাম (যেমন: `Binance Pay` বা `USDT (TRC20)`) লিখে চ্যাটে পাঠান:",
         reply_markup=InlineKeyboardMarkup(kbd),
         parse_mode="Markdown",
     )
@@ -1785,7 +1805,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
     ]
     await query.message.edit_text(
-        "✍ নির্দিষ্ট ইউজারের ব্যালেন্স বা রেফার বাড়াতে/কমাতে এই ফরম্যাটে লিখে পাঠান:\n\n"
+        f"✍ {user.first_name}, নির্দিষ্ট ইউজারের ব্যালেন্স বা রেফার বাড়াতে/কমাতে এই ফরম্যাটে লিখে পাঠান:\n\n"
         "`USER_ID +50` (টাকা যোগ করতে বা টাকা কাটতে `-50`)\n"
         "`USER_ID ref+2` (রেফার বাড়াতে)\n"
         "`USER_ID ref-1` (ফেক রেফার কাটতে)\n\n"
@@ -1808,7 +1828,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
     ]
     await query.message.edit_text(
-        "✍ নির্দিষ্ট ইউজারের উইথড্র করা অ্যামাউন্ট রিসেট করে ০ (শূন্য) করতে তার **User ID** লিখে পাঠান:\n\nউদাহরণ: `8276619021`",
+        f"✍ {user.first_name}, নির্দিষ্ট ইউজারের উইথড্র করা অ্যামাউন্ট রিসেট করে ০ (শূন্য) করতে তার **User ID** লিখে পাঠান:\n\nউদাহরণ: `8276619021`",
         reply_markup=InlineKeyboardMarkup(kbd),
         parse_mode="Markdown",
     )
@@ -1827,7 +1847,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
     ]
     await query.message.edit_text(
-        "✍ নির্দিষ্ট ইউজারের সমস্ত রেফারেল হিস্ট্রি (রেফার লিস্ট, বোনাস, কমিশন, উইথড্র) সম্পূর্ণ রিসেট বা মুছে ফেলতে তার **User ID** লিখে পাঠান:\n\nউদাহরণ: `8276619021`",
+        f"✍ {user.first_name}, নির্দিষ্ট ইউজারের সমস্ত রেফারেল হিস্ট্রি (রেফার লিস্ট, বোনাস, কমিশন, উইথড্র) সম্পূর্ণ রিসেট বা মুছে ফেলতে তার **User ID** লিখে পাঠান:\n\nউদাহরণ: `8276619021`",
         reply_markup=InlineKeyboardMarkup(kbd),
         parse_mode="Markdown",
     )
@@ -1846,7 +1866,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
     ]
     await query.message.edit_text(
-        "✍ নির্দিষ্ট ইউজারের সমস্ত সাবমিশন হিস্ট্রি ক্লিয়ার বা রিসেট করতে তার **User"
+        f"✍ {user.first_name}, নির্দিষ্ট ইউজারের সমস্ত সাবমিশন হিস্ট্রি ক্লিয়ার বা রিসেট করতে তার **User"
         " ID** লিখে পাঠান:\n\nউদাহরণ: `6945991387`",
         reply_markup=InlineKeyboardMarkup(kbd),
         parse_mode="Markdown",
@@ -1910,7 +1930,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ],
     ]
     await query.message.edit_text(
-        f"✍ আপনি **{cat_name}** ক্যাটাগরির পপআপ এডিট করতে চান。\n\n"
+        f"✍ {user.first_name}, আপনি **{cat_name}** ক্যাটাগরির পপআপ এডিট করতে চান。\n\n"
         f"• **বর্তমান অফ পপআপ:** `{p_closed}`\n"
         f"• **বর্তমান শিফট পপআপ:** `{p_shift}`\n\nকোন পপআপটি এডিট করতে চান তা সিলেক্ট"
         " করুন:",
@@ -1934,7 +1954,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
     ]
     await query.message.edit_text(
-        f"✍ **{cat_name}** ক্যাটাগরি ম্যানুয়ালি অফ থাকলে যে পপআপ দেখাবে তা লিখে"
+        f"✍ {user.first_name}, **{cat_name}** ক্যাটাগরি ম্যানুয়ালি অফ থাকলে যে পপআপ দেখাবে তা লিখে"
         " পাঠান ( `{category}` ব্যবহার করতে পারেন):",
         reply_markup=InlineKeyboardMarkup(kbd),
         parse_mode="Markdown",
@@ -1956,7 +1976,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
     ]
     await query.message.edit_text(
-        f"✍ **{cat_name}** শিফটের বাইরে থাকলে যে পপআপ দেখাবে তা লিখে পাঠান"
+        f"✍ {user.first_name}, **{cat_name}** শিফটের বাইরে থাকলে যে পপআপ দেখাবে তা লিখে পাঠান"
         " (`{category}` ব্যবহার করতে পারেন):",
         reply_markup=InlineKeyboardMarkup(kbd),
         parse_mode="Markdown",
@@ -2057,7 +2077,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
     ]
     await query.message.edit_text(
-        "✍ উইথড্র থেকে কত % কমিশন রেফারার পাবে তা সংখ্যায় লিখে পাঠান (যেমন: `5`"
+        f"✍ {user.first_name}, উইথড্র থেকে কত % কমিশন রেফারার পাবে তা সংখ্যায় লিখে পাঠান (যেমন: `5`"
         " বা `10`):",
         reply_markup=InlineKeyboardMarkup(kbd),
     )
@@ -2076,7 +2096,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
     ]
     await query.message.edit_text(
-        "✍ প্রতি রেফারে কত টাকা বোনাস দিতে চান তা সংখ্যায় লিখে পাঠান:",
+        f"✍ {user.first_name}, প্রতি রেফারে কত টাকা বোনাস দিতে চান তা সংখ্যায় লিখে পাঠান:",
         reply_markup=InlineKeyboardMarkup(keyboard),
     )
     return
@@ -2094,7 +2114,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
     ]
     await query.message.edit_text(
-        "✍ উইথড্র করার জন্য ন্যূনতম কয়টি রেফার লাগবে তা সংখ্যায় লিখে পাঠান"
+        f"✍ {user.first_name}, উইথড্র করার জন্য ন্যূনতম কয়টি রেফার লাগবে তা সংখ্যায় লিখে পাঠান"
         " (যেমন: `10`):",
         reply_markup=InlineKeyboardMarkup(keyboard),
     )
@@ -2113,7 +2133,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
     ]
     await query.message.edit_text(
-        "✍ উইথড্র করার জন্য ন্যূনতম কত টাকা থাকতে হবে তা সংখ্যায় লিখে পাঠান"
+        f"✍ {user.first_name}, উইথড্র করার জন্য ন্যূনতম কত টাকা থাকতে হবে তা সংখ্যায় লিখে পাঠান"
         " (যেমন: `50`):",
         reply_markup=InlineKeyboardMarkup(keyboard),
     )
@@ -2124,7 +2144,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ref_data = settings.get("referral", {"status": True})
     if not ref_data.get("status", True):
       await query.answer(
-          "⛔ দুঃখিত, রেফারেল সিস্টেম বর্তমানে বন্ধ রয়েছে!", show_alert=True
+          f"⛔ {user.first_name}, দুঃখিত, রেফারেল সিস্টেম বর্তমানে বন্ধ রয়েছে!", show_alert=True
       )
       return
 
@@ -2158,9 +2178,9 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ref_link = f"https://t.me/{bot_username}?start=ref_{user_id}"
 
     profile_text = (
-        "👤 **রেফারেল ও কমিশন প্রোফাইল**\n"
+        f"👤 **রেফারেল ও কমিশন প্রোফাইল ({user.first_name})**\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
-        f"🔹 **নাম:** {update.effective_user.first_name}\n"
+        f"🔹 **নাম:** {user.first_name}\n"
         f"🆔 **User ID:** `{user_id}`\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
         f"👥 **মোট রেফার করেছেন:** `{total_refs_count} জন`\n"
@@ -2221,14 +2241,14 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if total_refs_count < min_refs and current_available_bal < min_amt:
       await query.answer(
-          f"⛔ উইথড্র শর্ত পূরণ হয়নি!\nকমপক্ষে {min_refs}টি রেফার এবং ন্যূনতম ৳{min_amt} ব্যালেন্স থাকতে হবে。",
+          f"⛔ {user.first_name}, উইথড্র শর্ত পূরণ হয়নি!\nকমপক্ষে {min_refs}টি রেফার এবং ন্যূনতম ৳{min_amt} ব্যালেন্স থাকতে হবে。",
           show_alert=True,
       )
       return
 
     if current_available_bal < min_amt:
       await query.answer(
-          f"⛔ উইথড্র শর্ত পূরণ হয়নি!\nন্যূনতম ৳{min_amt} উত্তোলনযোগ্য ব্যালেন্স থাকতে হবে।",
+          f"⛔ {user.first_name}, উইথড্র শর্ত পূরণ হয়নি!\nন্যূনতম ৳{min_amt} উত্তোলনযোগ্য ব্যালেন্স থাকতে হবে।",
           show_alert=True,
       )
       return
@@ -2237,7 +2257,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     has_method = any(p_v != "সেট করা হয়নি" for p_k, p_v in user_p.items())
     if not has_method and not is_admin(user_id):
       await query.answer(
-          "⛔ পেমেন্ট নম্বর সেট করা নেই! প্রথমে পেমেন্ট মেনু থেকে নম্বর সেট"
+          f"⛔ {user.first_name}, পেমেন্ট নম্বর সেট করা নেই! প্রথমে পেমেন্ট মেনু থেকে নম্বর সেট"
           " করুন।",
           show_alert=True,
       )
@@ -2250,7 +2270,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     save_referrals(referrals)
 
     await query.answer(
-        "🎉 আপনার রেফারেল উইথড্র রিকোয়েস্ট সফলভাবে জমা হয়েছে এবং ব্যালেন্স থেকে"
+        f"🎉 {user.first_name}, আপনার রেফারেল উইথড্র রিকোয়েস্ট সফলভাবে জমা হয়েছে এবং ব্যালেন্স থেকে"
         " কর্তন করা হয়েছে!",
         show_alert=True,
     )
@@ -2284,7 +2304,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
           chat_id=with_ch,
           text=(
               "📥 **নতুন রেফারেল উইথড্র রিকোয়েস্ট!**\n\n"
-              f"👤 ইউজার: [{update.effective_user.first_name}](tg://user?id={user_id})"
+              f"👤 ইউজার: [{user.first_name}](tg://user?id={user_id})"
               f" (`{user_id}`)\n"
               f"💰 উইথড্র পরিমাণ: `৳{withdraw_amount}`\n"
               f"👥 মোট রেফার: `{total_refs_count} জন`\n\n"
@@ -2412,7 +2432,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
     ]
     await query.message.edit_text(
-        "🔍 **ইউজার সার্চ প্যানেল**\n\nদয়া করে যে ইউজারের হিস্ট্রি দেখতে চান তার"
+        f"🔍 **ইউজার সার্চ প্যানেল ({user.first_name})**\n\nদয়া করে যে ইউজারের হিস্ট্রি দেখতে চান তার"
         " **User ID** (যেমন: `6945991387`) চ্যাটে লিখে পাঠান:",
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode="Markdown",
@@ -2510,7 +2530,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
     try:
       await query.message.edit_text(
-          "🛠 **অ্যাডমিন কন্ট্রোল প্যানেল (মাস্টার হাব)**\n\nনিচের অপশনগুলো থেকে আপনার"
+          f"🛠 **অ্যাডমিন কন্ট্রোল প্যানেল (মাস্টার হাব) - {user.first_name}**\n\nনিচের অপশনগুলো থেকে আপনার"
           " বট সম্পূর্ণ নিয়ন্ত্রণ করুন:",
           reply_markup=InlineKeyboardMarkup(admin_keyboard),
           parse_mode="Markdown",
@@ -2554,7 +2574,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("🔙 ফিরে যান", callback_data="adm_shift_menu")]
     ]
     await query.message.edit_text(
-        f"✍ আপনি **{cat_name}** ক্যাটাগরির শিফট টাইম সেট করতে চান。\n\nদয়া করে"
+        f"✍ {user.first_name}, আপনি **{cat_name}** ক্যাটাগরির শিফট টাইম সেট করতে চান。\n\nদয়া করে"
         " শুরু এবং শেষের সময় **ঘণ্টা:মিনিট** ফরম্যাটে চ্যাটে লিখে পাঠান:\n`HH:MM"
         " HH:MM` (উদাহরণস্বরূপ: `10:30 22:45`)",
         reply_markup=InlineKeyboardMarkup(keyboard),
@@ -2713,8 +2733,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
           chat_id=user_id,
           document=f,
           caption=(
-              "📁 **সকল মেম্বারদের সমস্ত কাজের সাবমিশন ও Paid/Unpaid হিস্ট্রি"
-              " ফাইল হিসেবে সংযুক্ত করা হলো।** ✨"
+              f"📁 **সকল মেম্বারদের সমস্ত কাজের সাবমিশন ও Paid/Unpaid হিস্ট্রি ফাইল হিসেবে সংযুক্ত করা হলো, {user.first_name}।** ✨"
           ),
           parse_mode="Markdown",
       )
@@ -2817,7 +2836,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
           await context.bot.send_message(
               chat_id=l["user_id"],
               text=(
-                  f"🎉 **আপনার {cat_name} কাজের ৳{l.get('earned_amount', 0)}"
+                  f"🎉 **{l['user_name']}, আপনার {cat_name} কাজের ৳{l.get('earned_amount', 0)}"
                   " পেমেন্ট সফলভাবে সম্পন্ন হয়েছে!**"
               ),
               parse_mode="Markdown",
@@ -3156,7 +3175,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
     ]
     await query.message.edit_text(
-        f"🗓 আপনি **{cat_name}** ক্যাটাগরির ফাইল ডাউনলোড করতে চান。\n\nদয়া করে"
+        f"🗓 {user.first_name}, আপনি **{cat_name}** ক্যাটাগরির ফাইল ডাউনলোড করতে চান。\n\nদয়া করে"
         " নির্দিষ্ট তারিখটি এই ফরম্যাটে চ্যাটে লিখে পাঠান: `DD-MM-YYYY`\n(উদাহরণস্বরূপ:"
         " `10-10-2026`)",
         reply_markup=InlineKeyboardMarkup(keyboard),
@@ -3312,7 +3331,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("🔙 ফিরে যান", callback_data="adm_set_prices")]
     ]
     await query.message.edit_text(
-        f"✍ আপনি **{cat_name}** ক্যাটাগরির বর্তমান রেট পরিবর্তন করতে চান。\n\nদয়া"
+        f"✍ {user.first_name}, আপনি **{cat_name}** ক্যাটাগরির বর্তমান রেট পরিবর্তন করতে চান。\n\nদয়া"
         " করে নতুন মূল্য (সংখ্যায়, যেমন: `6.5` বা `10`) চ্যাটে লিখে পাঠান:",
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode="Markdown",
@@ -3359,7 +3378,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
     pay_msg = (
-        "💳 **পেমেন্ট নম্বর ম্যানেজমেন্ট**\n\nআপনার পেমেন্ট নম্বর সেট বা"
+        f"💳 **পেমেন্ট নম্বর ম্যানেজমেন্ট ({user.first_name})**\n\nআপনার পেমেন্ট নম্বর সেট বা"
         " পরিবর্তন করতে নিচের মাধ্যমটিতে ক্লিক করুন:\n(নম্বরগুলোতে ক্লিক করলেই"
         " কপি হয়ে যাবে)"
     )
@@ -3376,7 +3395,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if not p_info.get("status", True) and not is_admin(user_id):
       await query.answer(
-          "দুঃখিত, এই পেমেন্ট মাধ্যমটি বর্তমানে বন্ধ রয়েছে! ❌", show_alert=True
+          f"দুঃখিত {user.first_name}, এই পেমেন্ট মাধ্যমটি বর্তমানে বন্ধ রয়েছে! ❌", show_alert=True
       )
       return
 
@@ -3397,13 +3416,13 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if p_key == "binance":
       prompt_text = (
-          f"✍ আপনি আপনার নিজের **{m_name}** নম্বর বা পেমেন্ট আইডি সেট করতে চান。\n\nদয়া"
+          f"✍ {user.first_name}, আপনি আপনার নিজের **{m_name}** নম্বর বা পেমেন্ট আইডি সেট করতে চান。\n\nদয়া"
           " করে আপনার বিনান্স পে আইডি বা বাইন্যান্স ইমেইল/নম্বরটি চ্যাটে লিখে"
           " সেন্ড করুন:"
       )
     else:
       prompt_text = (
-          f"✍ আপনি আপনার নিজের **{m_name}** নম্বরটি সেট করতে চান。\n\nদয়া করে সঠিক"
+          f"✍ {user.first_name}, আপনি আপনার নিজের **{m_name}** নম্বরটি সেট করতে চান。\n\nদয়া করে সঠিক"
           " **১১ সংখ্যার বাংলাদেশি মোবাইল নম্বর** দিন যা `01` দিয়ে শুরু:"
       )
 
@@ -3436,7 +3455,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
     text = (
-        "💳 **আপনার পেমেন্ট ও আয়ের তথ্য**:\n\n"
+        f"💳 **{user.first_name}, আপনার পেমেন্ট ও আয়ের তথ্য**:\n\n"
         f"💰 সর্বমোট আয়: **৳{total_earned}**\n"
         f"🟢 পরিশোধিত (Paid): **৳{paid_earned}**\n"
         f"🔴 বকেয়া (Unpaid): **৳{due_earned}**\n\n"
@@ -3454,7 +3473,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logs = load_logs()
     user_logs = [l for l in logs if l["user_id"] == user_id]
     if not user_logs:
-      await query.answer("⛔ আপনার কোনো কাজের হিস্ট্রি পাওয়া যায়নি!", show_alert=True)
+      await query.answer(f"⛔ {user.first_name}, আপনার কোনো কাজের হিস্ট্রি পাওয়া যায়নি!", show_alert=True)
       return
     await query.answer()
 
@@ -3498,7 +3517,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
           chat_id=user_id,
           document=f,
           caption=(
-              "📁 **আপনার সমস্ত কাজের সাবমিশন ও Paid/Unpaid হিস্ট্রি ফাইল হিসেবে"
+              f"📁 **{user.first_name}, আপনার সমস্ত কাজের সাবমিশন ও Paid/Unpaid হিস্ট্রি ফাইল হিসেবে"
               " সংযুক্ত করা হলো।** ✨"
           ),
           parse_mode="Markdown",
@@ -3710,7 +3729,8 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
           parse_mode="Markdown",
       )
       await update.message.reply_text(
-          "✅ আপনার সাপোর্ট মেসেজ ও ছবি সফলভাবে অ্যাডমিনের কাছে পাঠানো হয়েছে! শীঘ্রই আপনার সাথে যোগাযোগ করা হবে। 🙏"
+          f"✅ {user.first_name}, আপনার সাপোর্ট মেসেজ ও ছবি সফলভাবে অ্যাডমিনের কাছে পাঠানো হয়েছে! শীঘ্রই আপনার সাথে যোগাযোগ করা হবে। 🙏",
+          parse_mode="Markdown",
       )
     except Exception as e:
       await update.message.reply_text("❌ মেসেজ পাঠাতে সমস্যা হয়েছে: " + str(e))
@@ -3723,9 +3743,10 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
   )
   if not has_valid_payment and not is_admin(user.id):
     await update.message.reply_text(
-        "⛔ প্রুফ পাঠানোর পূর্বে অন্তত একটি পেমেন্ট নম্বর সেট করা বাধ্যতামূলক!"
+        f"⛔ {user.first_name}, প্রুফ পাঠানোর পূর্বে অন্তত একটি পেমেন্ট নম্বর সেট করা বাধ্যতামূলক!"
         " দয়া করে বট মেনু থেকে **⚙ পেমেন্ট সেটিংস** এ গিয়ে আপনার পেমেন্ট নম্বরটি"
-        " সেট করুন।"
+        " সেট করুন.",
+        parse_mode="Markdown",
     )
     return
 
@@ -3736,7 +3757,8 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
   caption = update.message.caption or ""
   if not caption.strip():
     await update.message.reply_text(
-        "⛔ ছবির সাথে ট্রানজেকশন আইডি (TxHash বা Pay ID / Order ID) ক্যাপশনে লিখে দিন অথবা সরাসরি টেক্সট মেসেজ পাঠান।"
+        f"⛔ {user.first_name}, ছবির সাথে ট্রানজেকশন আইডি (TxHash বা Pay ID / Order ID) ক্যাপশনে লিখে দিন অথবা সরাসরি টেক্সট মেসেজ পাঠান.",
+        parse_mode="Markdown",
     )
     return
 
@@ -3747,7 +3769,8 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_text_message(
     update: Update, context: ContextTypes.DEFAULT_TYPE
 ):
-  user_id = update.effective_user.id
+  user = update.effective_user
+  user_id = user.id
   if user_id in load_blocked_users():
     return
 
@@ -3759,7 +3782,8 @@ async def handle_text_message(
     settings.setdefault("binance_api", {})["api_key"] = key_val
     save_settings(settings)
     await update.message.reply_text(
-        "✅ Binance API Key সফলভাবে সেভ করা হয়েছে!"
+        f"✅ {user.first_name}, Binance API Key সফলভাবে সেভ করা হয়েছে!",
+        parse_mode="Markdown",
     )
     return
 
@@ -3771,7 +3795,8 @@ async def handle_text_message(
     settings.setdefault("binance_api", {})["api_secret"] = secret_val
     save_settings(settings)
     await update.message.reply_text(
-        "✅ Binance API Secret Key সফলভাবে সেভ করা হয়েছে!"
+        f"✅ {user.first_name}, Binance API Secret Key সফলভাবে সেভ করা হয়েছে!",
+        parse_mode="Markdown",
     )
     return
 
@@ -3784,7 +3809,7 @@ async def handle_text_message(
     )
     with_ch = parse_chat_id(with_ch_raw)
 
-    user_link = f"[{update.effective_user.first_name}](tg://user?id={user_id})"
+    user_link = f"[{user.first_name}](tg://user?id={user_id})"
     forward_text = (
         "📩 **নতুন সাপোর্ট মেসেজ!**\n\n"
         f"👤 ইউজার: {user_link}\n"
@@ -3797,7 +3822,8 @@ async def handle_text_message(
           chat_id=with_ch, text=forward_text, parse_mode="Markdown"
       )
       await update.message.reply_text(
-          "✅ আপনার সাপোর্ট মেসেজ সফলভাবে অ্যাডমিনের কাছে পাঠানো হয়েছে! শীঘ্রই আপনার সাথে যোগাযোগ করা হবে। 🙏"
+          f"✅ {user.first_name}, আপনার সাপোর্ট মেসেজ সফলভাবে অ্যাডমিনের কাছে পাঠানো হয়েছে! শীঘ্রই আপনার সাথে যোগাযোগ করা হবে। 🙏",
+          parse_mode="Markdown",
       )
     except Exception as e:
       await update.message.reply_text("❌ মেসেজ পাঠাতে সমস্যা হয়েছে: " + str(e))
@@ -3812,22 +3838,53 @@ async def handle_text_message(
     )
     if not has_valid_payment and not is_admin(user_id):
       await update.message.reply_text(
-          "⛔ প্রুফ পাঠানোর পূর্বে অন্তত একটি পেমেন্ট নম্বর সেট করা বাধ্যতামূলক!"
+          f"⛔ {user.first_name}, প্রুফ পাঠানোর পূর্বে অন্তত একটি পেমেন্ট নম্বর সেট করা বাধ্যতামূলক!",
+          parse_mode="Markdown",
       )
       return
 
     tx_id_input = update.message.text.strip()
-
     used_txids = load_used_txids()
     clean_tx_check = tx_id_input.lower()
+
+    # ডুপ্লিকেট ট্রানজেকশন প্রুফ চেক ও সতর্কবার্তা
     if clean_tx_check in used_txids:
       await update.message.reply_text(
-          "⚠️ **এই ট্রানজেকশন আইডিটি ইতোমধ্যে ব্যবহার করা হয়েছে!**\n\nএকই প্রুফ বা ট্রানজেকশন দিয়ে পুনরায় পেমেন্ট রিকোয়েস্ট পাঠানো যাবে না।"
+          f"⚠️ **সতর্কবার্তা {user.first_name}!**\n\n"
+          "এই ট্রানজেকশন আইডি বা প্রুফটি ইতিপূর্বে একবার ব্যবহার করা হয়েছে। "
+          "একই প্রুফ বা ট্রানজেকশন দিয়ে পুনরায় উইথড্র রিকোয়েস্ট পাঠানো যাবে না। "
+          "দয়া করে সঠিক ও নতুন ট্রানজেকশন আইডি ব্যবহার করুন। ❌",
+          parse_mode="Markdown",
       )
+
+      with_ch_raw = settings.get("channels", {}).get(
+          "withdrawal_channel", DEFAULT_ADMIN_ID
+      )
+      with_ch = parse_chat_id(with_ch_raw)
+      user_link = f"[{user.first_name}](tg://user?id={user_id})"
+
+      fraud_alert_text = (
+          "🚨 **ডুপ্লিকেট ক্রিপ্টো প্রুফ অ্যালার্ট (সতর্কতা)!** ⚠️\n\n"
+          f"👤 ইউজার: {user_link}\n"
+          f"🆔 আইডি: `{user_id}`\n"
+          f"🔹 ওয়ালেট মাধ্যম: `{crypto_wallet}`\n"
+          f"❌ ব্যবহৃত ডুপ্লিকেট TxID / Pay ID: `{tx_id_input}`\n\n"
+          "📌 *এই ইউজার ইতিমধ্যে ব্যবহৃত ট্রানজেকশন আইডি দিয়ে পুনরায় উইথড্র নেওয়ার চেষ্টা করেছে।*"
+      )
+      try:
+        await context.bot.send_message(
+            chat_id=with_ch,
+            text=fraud_alert_text,
+            parse_mode="Markdown",
+        )
+      except Exception as e:
+        print(f"Error sending fraud alert to admin channel: {e}")
       return
 
-    await update.message.reply_text(
-        "🔍 **Binance API-এর মাধ্যমে ট্রানজেকশন যাচাই করা হচ্ছে...** দয়া করে অপেক্ষা করুন ⏳"
+    # চ্যাট ক্লিন রাখার জন্য সিঙ্গেল মেসেজ এডিট ফ্লো
+    status_msg = await update.message.reply_text(
+        f"🔍 **{user.first_name}**, Binance API-এর মাধ্যমে ট্রানজেকশন যাচাই করা হচ্ছে... ⏳",
+        parse_mode="Markdown",
     )
 
     binance_api_cfg = settings.get("binance_api", {})
@@ -3867,8 +3924,9 @@ async def handle_text_message(
         received_amount = tx_details.get("amount", "Unknown Amount")
 
     if not verified:
-      await update.message.reply_text(
-          f"❌ **Binance API ভেরিফিকেশন ব্যর্থ হয়েছে!**\n\nকারণ: `{error_reason}`\n\nদয়া করে সঠিক TxHash বা Pay ID / Order ID দিয়ে আবার চেষ্টা করুন।"
+      await status_msg.edit_text(
+          f"❌ **{user.first_name}, Binance API ভেরিফিকেশন ব্যর্থ হয়েছে!**\n\nকারণ: `{error_reason}`\n\nদয়া করে সঠিক TxHash বা Pay ID / Order ID দিয়ে আবার চেষ্টা করুন।",
+          parse_mode="Markdown",
       )
       return
 
@@ -3900,7 +3958,7 @@ async def handle_text_message(
         "\n".join(active_payments) if active_payments else "কোনো নম্বর সেট করা নেই"
     )
 
-    user_link = f"[{update.effective_user.first_name}](tg://user?id={user_id})"
+    user_link = f"[{user.first_name}](tg://user?id={user_id})"
     forward_text = (
         "🌐 **অটো-ভেরিফাইড ক্রিপ্টো উইথড্র রিকোয়েস্ট!** ✅\n\n"
         f"👤 ইউজার: {user_link}\n"
@@ -3928,11 +3986,12 @@ async def handle_text_message(
           reply_markup=InlineKeyboardMarkup(wd_kbd),
           parse_mode="Markdown",
       )
-      await update.message.reply_text(
-          f"✅ অভিনন্দন! আপনার **{received_amount}** এর ট্রানজেকশনটি **Binance API**-এর মাধ্যমে সফলভাবে ভেরিফাই হয়েছে এবং উইথড্র রিকোয়েস্টটি অ্যাডমিন চ্যানেলে পাঠানো হয়েছে! 🚀"
+      await status_msg.edit_text(
+          f"✅ অভিনন্দন {user.first_name}! আপনার **{received_amount}** এর ট্রানজেকশনটি **Binance API**-এর মাধ্যমে সফলভাবে ভেরিফাই হয়েছে এবং উইথড্র রিকোয়েস্টটি অ্যাডমিন চ্যানেলে পাঠানো হয়েছে! 🚀",
+          parse_mode="Markdown",
       )
     except Exception as e:
-      await update.message.reply_text("❌ রিকোয়েস্ট পাঠাতে সমস্যা হয়েছে: " + str(e))
+      await status_msg.edit_text(f"❌ রিকোয়েস্ট পাঠাতে সমস্যা হয়েছে: {str(e)}", parse_mode="Markdown")
     return
 
   if is_admin(user_id) and context.user_data.get("waiting_for_join_channel"):
@@ -3941,7 +4000,7 @@ async def handle_text_message(
     settings.setdefault("channels", {})["join_channel"] = ch_val
     save_settings(settings)
     await update.message.reply_text(
-        f"✅ নতুন জয়েন চ্যানেল সফলভাবে সেট করা হয়েছে: `{ch_val}`",
+        f"✅ {user.first_name}, নতুন জয়েন চ্যানেল সফলভাবে সেট করা হয়েছে: `{ch_val}`",
         parse_mode="Markdown",
     )
     return
@@ -3952,7 +4011,7 @@ async def handle_text_message(
     settings.setdefault("channels", {})["submission_channel"] = ch_val
     save_settings(settings)
     await update.message.reply_text(
-        f"✅ নতুন সাবমিশন চ্যানেল সফলভাবে সেট করা হয়েছে: `{ch_val}`",
+        f"✅ {user.first_name}, নতুন সাবমিশন চ্যানেল সফলভাবে সেট করা হয়েছে: `{ch_val}`",
         parse_mode="Markdown",
     )
     return
@@ -3963,7 +4022,7 @@ async def handle_text_message(
     settings.setdefault("channels", {})["withdrawal_channel"] = ch_val
     save_settings(settings)
     await update.message.reply_text(
-        f"✅ নতুন উইথড্র চ্যানেল সফলভাবে সেট করা হয়েছে: `{ch_val}`",
+        f"✅ {user.first_name}, নতুন উইথড্র চ্যানেল সফলভাবে সেট করা হয়েছে: `{ch_val}`",
         parse_mode="Markdown",
     )
     return
@@ -3974,7 +4033,7 @@ async def handle_text_message(
     settings.setdefault("channels", {})["support_link"] = sup_val
     save_settings(settings)
     await update.message.reply_text(
-        f"✅ সফলভাবে নতুন সাপোর্ট আইডি / লিংক সেট করা হয়েছে: `{sup_val}`",
+        f"✅ {user.first_name}, সফলভাবে নতুন সাপোর্ট আইডি / লিংক সেট করা হয়েছে: `{sup_val}`",
         parse_mode="Markdown",
     )
     return
@@ -3988,7 +4047,7 @@ async def handle_text_message(
         save_admins(admins)
       context.user_data["waiting_for_new_admin_id"] = None
       await update.message.reply_text(
-          f"👑 সফলভাবে নতুন অ্যাডমিন আইডি `{new_adm_id}` যুক্ত করা হয়েছে!",
+          f"👑 {user.first_name}, সফলভাবে নতুন অ্যাডমিন আইডি `{new_adm_id}` যুক্ত করা হয়েছে!",
           parse_mode="Markdown",
       )
       return
@@ -4005,7 +4064,8 @@ async def handle_text_message(
       save_settings(settings)
       context.user_data["waiting_for_comm_percent"] = None
       await update.message.reply_text(
-          f"✅ সফলভাবে রেফারেল কমিশন পার্সেন্ট `{pct}%` সেট করা হয়েছে!"
+          f"✅ {user.first_name}, সফলভাবে রেফারেল কমিশন পার্সেন্ট `{pct}%` সেট করা হয়েছে!",
+          parse_mode="Markdown",
       )
       return
     except:
@@ -4017,7 +4077,7 @@ async def handle_text_message(
     context.user_data["waiting_for_new_cat_key"] = None
     context.user_data["waiting_for_new_cat_name"] = c_key
     await update.message.reply_text(
-        f"✍ ধাপ ২: এখন ক্যাটাগরির সুন্দর ডিসপ্লে নাম (যেমন: `Gmail 2FA`)"
+        f"✍ {user.first_name}, ধাপ ২: এখন ক্যাটাগরির সুন্দর ডিসপ্লে নাম (যেমন: `Gmail 2FA`)"
         " লিখে পাঠান:"
     )
     return
@@ -4031,7 +4091,7 @@ async def handle_text_message(
         "name": c_name,
     }
     await update.message.reply_text(
-        f"✍ ধাপ ৩: এখন **{c_name}** ক্যাটাগরির প্রতি আইডির রেট (যেমন: `5.0` বা"
+        f"✍ {user.first_name}, ধাপ ৩: এখন **{c_name}** ক্যাটাগরির প্রতি আইডির রেট (যেমন: `5.0` বা"
         " `10`) সংখ্যায় লিখে পাঠান:"
     )
     return
@@ -4056,7 +4116,7 @@ async def handle_text_message(
       }
       save_settings(settings)
       await update.message.reply_text(
-          f"✅ সফলভাবে নতুন ক্যাটাগরি **{c_name}** ({c_price}৳ রেটসহ) যুক্ত করা"
+          f"✅ {user.first_name}, সফলভাবে নতুন ক্যাটাগরি **{c_name}** ({c_price}৳ রেটসহ) যুক্ত করা"
           " হয়েছে! 🎉\n\nএখন মেম্বাররা `/start` দিলেই এই ক্যাটাগরি দেখতে পাবে。",
           parse_mode="Markdown",
       )
@@ -4072,7 +4132,7 @@ async def handle_text_message(
     context.user_data["temp_wallet_name"] = w_name
     context.user_data["waiting_for_add_wallet_desc_step"] = True
     await update.message.reply_text(
-        f"✍ এখন **{w_name}** এর সংক্ষিপ্ত বিবরণ (যেমন: `ইউএসডিটি নেটওয়ার্ক বা পে"
+        f"✍ {user.first_name}, এখন **{w_name}** এর সংক্ষিপ্ত বিবরণ (যেমন: `ইউএসডিটি নেটওয়ার্ক বা পে"
         " আইডি`) লিখে পাঠান:"
     )
     return
@@ -4085,7 +4145,7 @@ async def handle_text_message(
     context.user_data["temp_wallet_desc"] = w_desc
     context.user_data["waiting_for_add_wallet_addr_step"] = True
     await update.message.reply_text(
-        f"✍ এখন মূল **অ্যাড্রেস বা অ্যাকাউন্ট নম্বর** লিখে পাঠান:"
+        f"✍ {user.first_name}, এখন মূল **অ্যাড্রেস বা অ্যাকাউন্ট নম্বর** লিখে পাঠান:"
     )
     return
 
@@ -4103,7 +4163,8 @@ async def handle_text_message(
     }
     save_settings(settings)
     await update.message.reply_text(
-        f"✅ সফলভাবে **{w_name}** ওয়ালেট অ্যাড্রেস সেভ করা হয়েছে!"
+        f"✅ {user.first_name}, সফলভাবে **{w_name}** ওয়ালেট অ্যাড্রেস সেভ করা হয়েছে!",
+        parse_mode="Markdown",
     )
     return
 
@@ -4348,7 +4409,7 @@ async def handle_text_message(
       context.user_data["waiting_for_shift_cat"] = None
       cat_name = settings["categories"][waiting_shift_cat]["name"]
       await update.message.reply_text(
-          f"✅ সফলভাবে **{cat_name}** ক্যাটাগরির শিফট সময় সেট করা হয়েছে: প্রতিদিন"
+          f"✅ {user.first_name}, সফলভাবে **{cat_name}** ক্যাটাগরির শিফট সময় সেট করা হয়েছে: প্রতিদিন"
           f" `{start_t}` থেকে `{end_t}` পর্যন্ত। ⏰",
           parse_mode="Markdown",
       )
@@ -4365,7 +4426,7 @@ async def handle_text_message(
     join_ch = settings.get("channels", {}).get("join_channel", "@OMORTECH")
     link_url, link_disp = format_channel_link(join_ch)
     join_msg = (
-        "⛔ **চ্যানেলে জয়েন করা বাধ্যতামূলক!**\n\n"
+        f"⛔ **{user.first_name}, চ্যানেলে জয়েন করা বাধ্যতামূলক!**\n\n"
         "বটটি ব্যবহার করতে হলে প্রথমে আমাদের অফিসিয়াল চ্যানেলে জয়েন করতে"
         " হবে। নিচে বাটনে ক্লিক করে জয়েন করুন:\n\n"
         f"✨ চ্যানেলে জয়েন করার পর নিচের **🔄 স্টার্ট / রিফ্রেশ করুন** বাটনে"
@@ -4476,7 +4537,7 @@ async def handle_text_message(
       cat_name = settings["categories"][waiting_price_cat]["name"]
 
       await update.message.reply_text(
-          f"✅ সফলভাবে **{cat_name}** ক্যাটাগরির নতুন রেট নির্ধারণ করা হয়েছে:"
+          f"✅ {user.first_name}, সফলভাবে **{cat_name}** ক্যাটাগরির নতুন রেট নির্ধারণ করা হয়েছে:"
           f" **{new_price}৳** 🌟",
           parse_mode="Markdown",
       )
@@ -4498,8 +4559,9 @@ async def handle_text_message(
           number.isdigit() and len(number) == 11 and number.startswith("01")
       ):
         await update.message.reply_text(
-            "⛔ ভুল নম্বর দেওয়া হয়েছে!\n\nদয়া করে সঠিক **১১ সংখ্যার** বাংলাদেশি"
-            " মোবাইল নম্বর দিন যা `01` দিয়ে শুরু."
+            f"⛔ {user.first_name}, ভুল নম্বর দেওয়া হয়েছে!\n\nদয়া করে সঠিক **১১ সংখ্যার** বাংলাদেশি"
+            " মোবাইল নম্বর দিন যা `01` দিয়ে শুরু.",
+            parse_mode="Markdown",
         )
         return
 
@@ -4514,7 +4576,7 @@ async def handle_text_message(
     context.user_data["waiting_for_payment_method"] = None
 
     await update.message.reply_text(
-        "✅ আপনার পেমেন্ট নম্বর সফলভাবে সেভ করা হয়েছে! 🌟\n\nফাইল সাবমিট করার"
+        f"✅ {user.first_name}, আপনার পেমেন্ট নম্বর সফলভাবে সেভ করা হয়েছে! 🌟\n\nফাইল সাবমিট করার"
         " জন্য আবার `/start` দিন অথবা মেনু থেকে ক্যাটাগরি সিলেক্ট করুন.",
         parse_mode="Markdown",
     )
@@ -4525,7 +4587,7 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
   bot = context.bot
 
   if user.id in load_blocked_users():
-    await update.message.reply_text("⛔ আপনাকে ব্লক করা হয়েছে।")
+    await update.message.reply_text(f"⛔ {user.first_name}, আপনাকে ব্লক করা হয়েছে.")
     return
 
   settings = load_settings()
@@ -4535,7 +4597,7 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
   is_member = await check_channel_membership(bot, user.id)
   if not is_member:
     join_msg = (
-        "⛔ **চ্যানেলে জয়েন করা বাধ্যতামূলক!**\n\n"
+        f"⛔ **{user.first_name}, চ্যানেলে জয়েন করা বাধ্যতামূলক!**\n\n"
         "বটটি ব্যবহার করতে হলে প্রথমে আমাদের অফিসিয়াল চ্যানেলে জয়েন করতে"
         " হবে। নিচে বাটনে ক্লিক করে জয়েন করুন:\n\n"
         f"✨ চ্যানেলে জয়েন করার পর নিচের **🔄 স্টার্ট / রিফ্রেশ করুন** বাটনে"
@@ -4565,7 +4627,7 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ):
       original_name = doc.file_name
       wrong_file_msg = (
-          f"⛔ **ফাইল গ্রহণ করা হয়নি!**\n\n"
+          f"⛔ **{user.first_name}, ফাইল গ্রহণ করা হয়নি!**\n\n"
           f"আপনার পাঠানো ফাইলটি (`{original_name}`) সঠিক এক্সেল ফাইল নয়। "
           "অনুগ্রহ করে শুধুমাত্র সঠিক **.xlsx** ফরম্যাতের এক্সেল ফাইলটি তৈরি করে"
           " আবার আপলোড করুন। 📂✨"
@@ -4670,7 +4732,7 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
   if not has_valid_payment and not is_admin(user.id):
     no_pay_msg = (
-        "⛔ **ফাইল সাবমিট ব্যর্থ হয়েছে!**\n\n"
+        f"⛔ **{user.first_name}, ফাইল সাবমিট ব্যর্থ হয়েছে!**\n\n"
         "ফাইল জমা দেওয়ার আগে অন্তত একটি পেমেন্ট মাধ্যম বা নম্বর (যেমন: bKash বা"
         " Nagad) যুক্ত করা বাধ্যতামূলক। "
         "দয়া করে বট মেনু থেকে **⚙ পেমেন্ট সেটিংস** এ গিয়ে আপনার পেমেন্ট নম্বরটি"
@@ -4685,7 +4747,7 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
   if not selected_cat_key:
     await update.message.reply_text(
-        "⛔ দয়া করে প্রথমে `/start` দিয়ে ক্যাটাগরি সিলেক্ট করুন।",
+        f"⛔ {user.first_name}, দয়া করে প্রথমে `/start` দিয়ে ক্যাটাগরি সিলেক্ট করুন।",
         parse_mode="Markdown",
     )
     return
@@ -4709,7 +4771,7 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return
 
   progress_msg = await update.message.reply_text(
-      "⌛ **ফাইল প্রসেসিং শুরু হয়েছে...**\n`[▒▒▒▒▒▒▒▒▒▒] 0%`", parse_mode="Markdown"
+      f"⌛ **{user.first_name}, ফাইল প্রসেসিং শুরু হয়েছে...**\n`[▒▒▒▒▒▒▒▒▒▒] 0%`", parse_mode="Markdown"
   )
 
   file = await update.message.document.get_file()
@@ -4718,7 +4780,7 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
   try:
     await progress_msg.edit_text(
-        "🔍 **ফাইল রিডিং ও কলাম চেক করা হচ্ছে...**\n`[████▒▒▒▒▒▒] 40%`",
+        f"🔍 **{user.first_name}, ফাইল রিডিং ও কলাম চেক করা হচ্ছে...**\n`[████▒▒▒▒▒▒] 40%`",
         parse_mode="Markdown",
     )
 
@@ -4726,13 +4788,13 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if df.shape[1] < 3:
       await progress_msg.edit_text(
-          "⛔ ফাইল রিজেক্ট করা হয়েছে!\nকারণ: ফাইলে পর্যাপ্ত কলাম (A, B, C) নেই।"
+          f"⛔ {user.first_name}, ফাইল রিজেক্ট করা হয়েছে!\nকারণ: ফাইলে পর্যাপ্ত কলাম (A, B, C) নেই।"
       )
       return
 
     total_rows = len(df)
     if total_rows == 0:
-      await progress_msg.edit_text("⛔ ফাইলটি খালি রয়েছে!")
+      await progress_msg.edit_text(f"⛔ {user.first_name}, ফাইলটি খালি রয়েছে!")
       return
 
     first_data_idx = -1
@@ -4938,7 +5000,7 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
       final_error_text = "\n".join(formatted_error_lines)
 
       rejection_msg = (
-          "⛔ **ফাইল প্রত্যাখ্যান করা হয়েছে!**\n\n⚠ ফাইলের সুনির্দিষ্ট ত্রুটিসমূহ:\n"
+          f"⛔ **{user.first_name}, ফাইল প্রত্যাখ্যান করা হয়েছে!**\n\n⚠ ফাইলের সুনির্দিষ্ট ত্রুটিসমূহ:\n"
           f"━━━━━━━━━━━━━━━━━━━━\n{final_error_text}\n━━━━━━━━━━━━━━━━━━━━\n💡"
           " দয়া করে উপরোক্ত সারির ভুলগুলো সংশোধন করে ফাইলটি আবার সেন্ড করুন."
       )
@@ -4946,7 +5008,7 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
       return
 
     await progress_msg.edit_text(
-        "🔄 **ডুপ্লিকেট ও গ্লোবাল আইডি ম্যাচিং চলছে...**\n`[████████▒▒] 80%`",
+        f"🔄 **{user.first_name}, ডুপ্লিকেট ও গ্লোবাল আইডি ম্যাচিং চলছে...**\n`[████████▒▒] 80%`",
         parse_mode="Markdown",
     )
 
@@ -5083,7 +5145,7 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await progress_msg.delete()
 
     report_text = (
-        "📊 **আপনার ফাইল রিপোর্ট সফলভাবে তৈরি হয়েছে!**\n"
+        f"📊 **{user.first_name}, আপনার ফাইল রিপোর্ট সফলভাবে তৈরি হয়েছে!**\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
         f"📂 ক্যাটাগরি: {selected_cat}\n"
         f"🔢 মোট সাবমিট: {total_count}\n"
@@ -5098,7 +5160,7 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if file_duplicates > 0:
       caption_text = (
-          f"📥 আপনার ফাইলের {file_duplicates} টি ডুপ্লিকেট আইডি লাল রঙে মার্ক"
+          f"📥 {user.first_name}, আপনার ফাইলের {file_duplicates} টি ডুপ্লিকেট আইডি লাল রঙে মার্ক"
           " করা হয়েছে"
       )
       with open(highlighted_path, "rb") as f:
@@ -5148,52 +5210,49 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
   except Exception as e:
     try:
       await progress_msg.edit_text(
-          f"⛔ ফাইল প্রসেস করতে গিয়ে সমস্যা হয়েছে!\nত্রুটি: {str(e)}"
+          f"⛔ {user.first_name}, ফাইল প্রসেস করতে গিয়ে সমস্যা হয়েছে!\nত্রুটি: {str(e)}"
       )
     except:
       await update.message.reply_text(
-          f"⛔ ফাইল প্রসেস করতে গিয়ে সমস্যা হয়েছে!\nত্রুটি: {str(e)}"
+          f"⛔ {user.first_name}, ফাইল প্রসেস করতে গিয়ে সমস্যা হয়েছে!\nত্রুটি: {str(e)}"
       )
 
 
-from keep_alive import keep_alive  # ফাইলের ওপরের দিকে বা মেইনের আগে ইমপোর্ট করে নেবেন
-
 def main():
-    application = (
-        ApplicationBuilder()
-        .token(TOKEN)
-        .read_timeout(30)
-        .write_timeout(30)
-        .connect_timeout(30)
-        .pool_timeout(30)
-        .build()
-    )
+  keep_alive()  # ফ্লাস্ক ব্যাকগ্রাউন্ড সার্ভার চালু করবে
 
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("help", help_command))
-    application.add_handler(CommandHandler("status", status_command))
-    application.add_handler(CommandHandler("users", users_list_command))
-    application.add_handler(CommandHandler("resetall", reset_all_logs_command))
-    application.add_handler(CommandHandler("clearids", clear_global_ids_command))
-    application.add_handler(CommandHandler("top", top_command))
-    application.add_handler(CommandHandler("block", block_command))
-    application.add_handler(CommandHandler("unblock", unblock_command))
-    application.add_handler(CommandHandler("broadcast", broadcast_command))
-    application.add_handler(CommandHandler("send", send_specific_message))
+  application = (
+      ApplicationBuilder()
+      .token(TOKEN)
+      .read_timeout(30)
+      .write_timeout(30)
+      .connect_timeout(30)
+      .pool_timeout(30)
+      .build()
+  )
 
-    application.add_handler(CallbackQueryHandler(button_callback))
-    application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
-    application.add_handler(
-        MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_message)
-    )
-    application.add_handler(MessageHandler(filters.Document.ALL, handle_document))
+  application.add_handler(CommandHandler("start", start))
+  application.add_handler(CommandHandler("help", help_command))
+  application.add_handler(CommandHandler("status", status_command))
+  application.add_handler(CommandHandler("users", users_list_command))
+  application.add_handler(CommandHandler("resetall", reset_all_logs_command))
+  application.add_handler(CommandHandler("clearids", clear_global_ids_command))
+  application.add_handler(CommandHandler("top", top_command))
+  application.add_handler(CommandHandler("block", block_command))
+  application.add_handler(CommandHandler("unblock", unblock_command))
+  application.add_handler(CommandHandler("broadcast", broadcast_command))
+  application.add_handler(CommandHandler("send", send_specific_message))
 
-    # ব্যাকগ্রাউন্ডে Flask সার্ভার চালু করার জন্য এটি দিতে হবে
-    keep_alive()
+  application.add_handler(CallbackQueryHandler(button_callback))
+  application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
+  application.add_handler(
+      MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_message)
+  )
+  application.add_handler(MessageHandler(filters.Document.ALL, handle_document))
 
-    print("🤖 Bot is running smoothly...")
-    application.run_polling()
+  print("🤖 Bot is running smoothly...")
+  application.run_polling()
 
 
 if __name__ == "__main__":
-    main()
+  main()
