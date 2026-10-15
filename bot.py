@@ -5156,39 +5156,44 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
       )
 
 
+from keep_alive import keep_alive  # ফাইলের ওপরের দিকে বা মেইনের আগে ইমপোর্ট করে নেবেন
+
 def main():
-  application = (
-      ApplicationBuilder()
-      .token(TOKEN)
-      .read_timeout(30)
-      .write_timeout(30)
-      .connect_timeout(30)
-      .pool_timeout(30)
-      .build()
-  )
+    application = (
+        ApplicationBuilder()
+        .token(TOKEN)
+        .read_timeout(30)
+        .write_timeout(30)
+        .connect_timeout(30)
+        .pool_timeout(30)
+        .build()
+    )
 
-  application.add_handler(CommandHandler("start", start))
-  application.add_handler(CommandHandler("help", help_command))
-  application.add_handler(CommandHandler("status", status_command))
-  application.add_handler(CommandHandler("users", users_list_command))
-  application.add_handler(CommandHandler("resetall", reset_all_logs_command))
-  application.add_handler(CommandHandler("clearids", clear_global_ids_command))
-  application.add_handler(CommandHandler("top", top_command))
-  application.add_handler(CommandHandler("block", block_command))
-  application.add_handler(CommandHandler("unblock", unblock_command))
-  application.add_handler(CommandHandler("broadcast", broadcast_command))
-  application.add_handler(CommandHandler("send", send_specific_message))
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("help", help_command))
+    application.add_handler(CommandHandler("status", status_command))
+    application.add_handler(CommandHandler("users", users_list_command))
+    application.add_handler(CommandHandler("resetall", reset_all_logs_command))
+    application.add_handler(CommandHandler("clearids", clear_global_ids_command))
+    application.add_handler(CommandHandler("top", top_command))
+    application.add_handler(CommandHandler("block", block_command))
+    application.add_handler(CommandHandler("unblock", unblock_command))
+    application.add_handler(CommandHandler("broadcast", broadcast_command))
+    application.add_handler(CommandHandler("send", send_specific_message))
 
-  application.add_handler(CallbackQueryHandler(button_callback))
-  application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
-  application.add_handler(
-      MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_message)
-  )
-  application.add_handler(MessageHandler(filters.Document.ALL, handle_document))
+    application.add_handler(CallbackQueryHandler(button_callback))
+    application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
+    application.add_handler(
+        MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_message)
+    )
+    application.add_handler(MessageHandler(filters.Document.ALL, handle_document))
 
-  print("🤖 Bot is running smoothly...")
-  application.run_polling()
+    # ব্যাকগ্রাউন্ডে Flask সার্ভার চালু করার জন্য এটি দিতে হবে
+    keep_alive()
+
+    print("🤖 Bot is running smoothly...")
+    application.run_polling()
 
 
 if __name__ == "__main__":
-  main()
+    main()
