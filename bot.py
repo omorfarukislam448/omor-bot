@@ -1,3 +1,4 @@
+from keep_alive import keep_alive
 import datetime
 import hashlib
 import hmac
@@ -5267,6 +5268,9 @@ def main():
       MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_message)
   )
   application.add_handler(MessageHandler(filters.Document.ALL, handle_document))
+
+  # ব্যাকগ্রাউন্ডে Flask সার্ভার চালু করার জন্য এটি অবশ্যই কল করতে হবে
+  keep_alive()
 
   print("🤖 Bot is running smoothly...")
   application.run_polling()
